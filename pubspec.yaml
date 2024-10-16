@@ -1,6 +1,6 @@
 name: get_packer
-description: A high-performance serialization library for Dart, designed to efficiently pack and unpack data structures. It provides a fast and compact alternative to JSON encoding/decoding and MessagePack
-version: 1.0.0
+description: A high-performance Dart serialization library for efficiently packing and unpacking data, offering a faster and more compact alternative to JSON and MessagePack.
+version: 1.0.1
 repository: https://github.com/jonataslaw/get_packer
 
 environment:

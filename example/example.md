@@ -11,6 +11,9 @@ void main() {
   };
 
   final encoded = GetPacker.pack(data);
+  print(encoded);
+  // Output: [132, 164, 110, 97, 109, 101, 168, 74, 111, 104, 110, 32, 68, 111, 101, 163, 97, 103, 101, 30, 169, 105, 115, 83, 116, 117, 100, 101, 110, 116, 194, 166, 103, 114, 97, 100, 101, 115, 147, 85, 90, 92]
+
 
   // Decoding
   final decoded = GetPacker.unpack(encoded);
