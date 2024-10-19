@@ -12,6 +12,15 @@ class BigDataException implements Exception {
   String toString() => 'Data $data is too big to process';
 }
 
+/// Custom exception for indicating unexpected end of input.
+class UnexpectedError implements Exception {
+  UnexpectedError(this.message);
+  final String message;
+
+  @override
+  String toString() => 'Unexpected error: $message';
+}
+
 /// The main interface for packing and unpacking data.
 class GetPacker {
   /// Encodes the given value into a GetPacker format.
@@ -33,26 +42,20 @@ mixin PackedModel {
   Uint8List pack() => GetPacker.pack(toJson());
 
   Map<String, dynamic> toJson();
-  T fromJson<T extends PackedModel>(Map<String, dynamic> data);
 }
 
 /// Internal class for encoding data into GetPacker format.
 class _Packer {
-  final Uint8List _buffer = Uint8List(1024 * 8); // Start with 8KB buffer
+  Uint8List _buffer = Uint8List(1024 * 8); // Start with 8KB buffer
   int _offset = 0;
 
   final ByteData _byteData = ByteData(8); // Reusable ByteData for numbers
 
   void _ensureBuffer(int length) {
-    if (_offset + length > _buffer.length) {
-      // Double the buffer size until it fits
-      int newSize = _buffer.length * 2;
-      while (_offset + length > newSize) {
-        newSize *= 2;
-      }
-      final newBuffer = Uint8List(newSize);
+    while (_offset + length > _buffer.length) {
+      final newBuffer = Uint8List(_buffer.length * 2);
       newBuffer.setRange(0, _offset, _buffer);
-      _buffer.setAll(0, newBuffer);
+      _buffer = newBuffer;
     }
   }
 
@@ -282,8 +285,6 @@ class _Packer {
       for (int i = 0; i < 4; i++) {
         _buffer[_offset++] = _byteData.getUint8(i);
       }
-    } else {
-      throw BigDataException(value);
     }
     _buffer[_offset++] = 0x01; // Type code for BigInt
     _buffer[_offset++] = isNegative ? 0x01 : 0x00; // Sign byte
@@ -324,7 +325,7 @@ class _Unpacker {
 
   dynamic _decode() {
     if (_offset >= _bytes.length) {
-      throw StateError('Unexpected end of input');
+      throw UnexpectedError('Unexpected end of input');
     }
 
     final int prefix = _bytes[_offset++];
@@ -363,8 +364,8 @@ class _Unpacker {
           return _readInt(4);
         case 0xD3:
           return _readInt(8);
-        case 0xCA:
-          return _readFloat();
+        // case 0xCA:
+        //   return _readFloat();
         case 0xCB:
           return _readDouble();
         case 0xD9:
@@ -405,7 +406,7 @@ class _Unpacker {
 
   int _readUint(int byteCount) {
     if (_offset + byteCount > _bytes.length) {
-      throw StateError('Unexpected end of input');
+      throw UnexpectedError('Unexpected end of input');
     }
     int value = 0;
     for (int i = 0; i < byteCount; i++) {
@@ -416,7 +417,7 @@ class _Unpacker {
 
   int _readInt(int byteCount) {
     if (_offset + byteCount > _bytes.length) {
-      throw StateError('Unexpected end of input');
+      throw UnexpectedError('Unexpected end of input');
     }
     for (int i = 0; i < byteCount; i++) {
       _byteData.setUint8(i, _bytes[_offset++]);
@@ -439,19 +440,19 @@ class _Unpacker {
     return value;
   }
 
-  double _readFloat() {
-    if (_offset + 4 > _bytes.length) {
-      throw StateError('Unexpected end of input');
-    }
-    for (int i = 0; i < 4; i++) {
-      _byteData.setUint8(i, _bytes[_offset++]);
-    }
-    return _byteData.getFloat32(0, Endian.big);
-  }
+  // double _readFloat() {
+  //   if (_offset + 4 > _bytes.length) {
+  //     throw UnexpectedError('Unexpected end of input');
+  //   }
+  //   for (int i = 0; i < 4; i++) {
+  //     _byteData.setUint8(i, _bytes[_offset++]);
+  //   }
+  //   return _byteData.getFloat32(0, Endian.big);
+  // }
 
   double _readDouble() {
     if (_offset + 8 > _bytes.length) {
-      throw StateError('Unexpected end of input');
+      throw UnexpectedError('Unexpected end of input');
     }
     for (int i = 0; i < 8; i++) {
       _byteData.setUint8(i, _bytes[_offset++]);
@@ -461,7 +462,7 @@ class _Unpacker {
 
   String _readString(int length) {
     if (_offset + length > _bytes.length) {
-      throw StateError('Unexpected end of input');
+      throw UnexpectedError('Unexpected end of input');
     }
     final str = utf8.decode(_bytes.sublist(_offset, _offset + length));
     _offset += length;
@@ -470,7 +471,7 @@ class _Unpacker {
 
   Uint8List _readBinary(int length) {
     if (_offset + length > _bytes.length) {
-      throw StateError('Unexpected end of input');
+      throw UnexpectedError('Unexpected end of input');
     }
     final result =
         Uint8List.view(_bytes.buffer, _bytes.offsetInBytes + _offset, length);
@@ -498,7 +499,7 @@ class _Unpacker {
 
   dynamic _readExt(int length) {
     if (_offset + length > _bytes.length) {
-      throw StateError('Unexpected end of input');
+      throw UnexpectedError('Unexpected end of input');
     }
     final type = _bytes[_offset++];
     if (type == 0x01) {
@@ -518,7 +519,7 @@ class _Unpacker {
     } else if (type == 0xFF) {
       // DateTime type code
       if (length != 12) {
-        throw UnsupportedError('Unexpected ext length for DateTime: $length');
+        throw UnexpectedError('Unexpected ext length for DateTime: $length');
       }
       final millisecondsSinceEpoch = _readInt(8);
       final microsecond = _readInt(4);
