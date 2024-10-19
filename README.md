@@ -3,7 +3,7 @@
 GetPacker is a high-performance serialization library for Dart, designed to efficiently pack and unpack data structures. It provides a fast and compact alternative to JSON encoding/decoding and MessagePack with no limitations (like DateTime objects).
 
 [![Pub Version](https://img.shields.io/pub/v/get_packer)](https://pub.dev/packages/get_packer)
-[![codecov](https://codecov.io/gh/jonataslaw/get_packer/graph/badge.svg?token=50GQ1E62P4)](https://codecov.io/gh/jonataslaw/get_packer)
+[![codecov](https://codecov.io/gh/jonataslaw/get_packer/graph/badge.svg?token=U4EJLE94VI)](https://codecov.io/gh/jonataslaw/get_packer)
 
 ## Features
 
