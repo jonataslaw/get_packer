@@ -2,6 +2,11 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../enums/web_interop_mode.dart';
+import '../errors/big_data_exception.dart';
+import '../errors/unexpected_error_exception.dart';
+import '../internal/numeric_runtime.dart';
+import '../internal/packed_bool_list.dart';
+import '../mixins/packed_model.dart';
 import '../objects/ext_type.dart';
 import '../objects/get_packer_config.dart';
 
@@ -30,7 +35,6 @@ class GetPackerEncoder {
     }
   }
 }
-
 
 class _Packer {
   _Packer(this._cfg, {this.trimOnFinish = false})
@@ -223,7 +227,7 @@ class _Packer {
     // On the VM we can safely carry 64-bit ints around
     // On the web, wide ints either become BigInt or precision bugs
     if (_cfg.webInteropMode == WebInteropMode.requireBigIntForWide &&
-        (v > _kMaxSafeJsInt || v < _kMinSafeJsInt)) {
+        (v > kMaxSafeJsInt || v < kMinSafeJsInt)) {
       throw ArgumentError(
           'Integers beyond ±2^53−1 require BigInt when webInteropMode=requireBigIntForWide: $v');
     }
@@ -487,11 +491,11 @@ class _Packer {
 
       final bigMin = BigInt.from(min);
       final bigMax = BigInt.from(max);
-      if (min >= 0 && bigMax <= _kMaxUint64Big) {
+      if (min >= 0 && bigMax <= kMaxUint64Big) {
         _encodeIntListDirect(ExtType.uint64List, list, 8);
         return;
       }
-      if (bigMin >= _kMinInt64Big && bigMax <= _kMaxInt64Big) {
+      if (bigMin >= kMinInt64Big && bigMax <= kMaxInt64Big) {
         _encodeIntListDirect(ExtType.int64List, list, 8);
         return;
       }
@@ -561,11 +565,11 @@ class _Packer {
         }
         final bigMin = BigInt.from(min);
         final bigMax = BigInt.from(max);
-        if (min >= 0 && bigMax <= _kMaxUint64Big) {
+        if (min >= 0 && bigMax <= kMaxUint64Big) {
           _encodeIntListDirect(ExtType.uint64List, list, 8);
           return;
         }
-        if (bigMin >= _kMinInt64Big && bigMax <= _kMaxInt64Big) {
+        if (bigMin >= kMinInt64Big && bigMax <= kMaxInt64Big) {
           _encodeIntListDirect(ExtType.int64List, list, 8);
           return;
         }
@@ -1079,12 +1083,12 @@ class _Packer {
     int pos = dst + byteLen;
     for (int i = 0; i < tailWords; i++) {
       pos -= 4;
-      final int w = (v & _kMask32).toInt();
+      final int w = (v & kMask32).toInt();
       _bd.setUint32(pos, w, Endian.big);
       v = v >> 32;
     }
     for (int i = headBytes - 1; i >= 0; i--) {
-      _buffer[dst + i] = (v & _kMask8).toInt();
+      _buffer[dst + i] = (v & kMask8).toInt();
       v = v >> 8;
     }
   }

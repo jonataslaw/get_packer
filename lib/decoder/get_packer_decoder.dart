@@ -1,8 +1,9 @@
-
-
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../enums/web_interop_mode.dart';
+import '../errors/unexpected_error_exception.dart';
+import '../internal/numeric_runtime.dart';
 import '../objects/ext_type.dart';
 import '../objects/get_packer_config.dart';
 
@@ -16,7 +17,6 @@ class GetPackerDecoder {
   void reset(Uint8List bytes) => _u.setInput(bytes);
   T unpack<T>() => _u._decodeRoot<T>();
 }
-
 
 class _Unpacker {
   _Unpacker(Uint8List bytes, this._cfg)
@@ -229,7 +229,7 @@ class _Unpacker {
     final safe = hi <= 0x001FFFFF;
     switch (_cfg.webInteropMode) {
       case WebInteropMode.off:
-        if (_kIsWeb && !safe) return (BigInt.from(hi) << 32) | BigInt.from(lo);
+        if (kIsWeb && !safe) return (BigInt.from(hi) << 32) | BigInt.from(lo);
         return hi * 4294967296 + lo;
       case WebInteropMode.promoteWideToBigInt:
       case WebInteropMode.requireBigIntForWide:
@@ -252,7 +252,7 @@ class _Unpacker {
 
     switch (_cfg.webInteropMode) {
       case WebInteropMode.off:
-        if (_kIsWeb && !safe) {
+        if (kIsWeb && !safe) {
           final hiSignedBig = BigInt.from(neg ? (hiU - 0x100000000) : hiU);
           return (hiSignedBig << 32) + BigInt.from(lo);
         }
@@ -492,20 +492,20 @@ class _Unpacker {
 
       switch (_cfg.webInteropMode) {
         case WebInteropMode.off:
-          if (_kIsWeb) {
-            if (big >= _kMinSafeJsBig && big <= _kMaxSafeJsBig) {
+          if (kIsWeb) {
+            if (big >= kMinSafeJsBig && big <= kMaxSafeJsBig) {
               return big.toInt();
             }
             return big;
           } else {
-            if (big >= _kMinInt64Big && big <= _kMaxInt64Big) {
+            if (big >= kMinInt64Big && big <= kMaxInt64Big) {
               return big.toInt();
             }
             return big;
           }
         case WebInteropMode.promoteWideToBigInt:
         case WebInteropMode.requireBigIntForWide:
-          if (big >= _kMinSafeJsBig && big <= _kMaxSafeJsBig) {
+          if (big >= kMinSafeJsBig && big <= kMaxSafeJsBig) {
             return big.toInt();
           }
           return big;
