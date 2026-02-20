@@ -520,6 +520,12 @@ class _Unpacker {
       }
       final count = _readUint32();
       final bytesLen = payloadLength - 4;
+      final neededBytes = (count + 7) >> 3;
+      if (bytesLen != neededBytes) {
+        throw UnexpectedError(
+            'Bad boolList payload length (count=$count needs $neededBytes bytes, got $bytesLen)',
+            offset: _offset);
+      }
       _need(bytesLen);
       final data = Uint8List.view(
           _bytes.buffer, _bytes.offsetInBytes + _offset, bytesLen);

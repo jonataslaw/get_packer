@@ -333,43 +333,51 @@ class _Packer {
   }
 
   void _encodeString(String s) {
-    // Most keys and values in storage workloads are ASCII
-    // Skip the UTF-8 machinery when we can
-    final n = s.length;
-    int i = 0;
-    while (i < n && s.codeUnitAt(i) <= 0x7F) {
-      i++;
-    }
-    if (i == n) {
-      if (n <= 31) {
-        _ensureBuffer(1 + n);
-        _buffer[_offset++] = 0xA0 | n;
-      } else if (n <= 0xFF) {
-        _ensureBuffer(2 + n);
-        _buffer[_offset++] = 0xD9;
-        _buffer[_offset++] = n;
-      } else if (n <= 0xFFFF) {
-        _ensureBuffer(3 + n);
-        _buffer[_offset++] = 0xDA;
-        _bd.setUint16(_offset, n, Endian.big);
-        _offset += 2;
-      } else if (n <= 0xFFFFFFFF) {
-        _ensureBuffer(5 + n);
-        _buffer[_offset++] = 0xDB;
-        _bd.setUint32(_offset, n, Endian.big);
-        _offset += 4;
-      } else {
-        throw BigDataException(s,
-            reason: 'string length $n exceeds 2^32-1 bytes');
-      }
-      final start = _offset;
-      for (int j = 0; j < n; j++) {
-        _buffer[start + j] = s.codeUnitAt(j);
-      }
-      _offset += n;
-      return;
+    // Single-pass ASCII fast path (check + copy in one loop).
+    // If we hit non-ASCII, rollback and go through UTF-8.
+    final int n = s.length;
+    if (n > 0xFFFFFFFF) {
+      throw BigDataException(s,
+          reason: 'string length $n exceeds 2^32-1 bytes');
     }
 
+    final int start = _offset;
+
+    // Reserve header + n bytes (ASCII => byteLen == codeUnit length).
+    if (n <= 31) {
+      _ensureBuffer(1 + n);
+      _buffer[_offset++] = 0xA0 | n;
+    } else if (n <= 0xFF) {
+      _ensureBuffer(2 + n);
+      _buffer[_offset++] = 0xD9;
+      _buffer[_offset++] = n;
+    } else if (n <= 0xFFFF) {
+      _ensureBuffer(3 + n);
+      _buffer[_offset++] = 0xDA;
+      _bd.setUint16(_offset, n, Endian.big);
+      _offset += 2;
+    } else {
+      _ensureBuffer(5 + n);
+      _buffer[_offset++] = 0xDB;
+      _bd.setUint32(_offset, n, Endian.big);
+      _offset += 4;
+    }
+
+    final int dataStart = _offset;
+    for (int i = 0; i < n; i++) {
+      final cu = s.codeUnitAt(i);
+      if (cu > 0x7F) {
+        // Not ASCII — rollback and do UTF-8.
+        _offset = start;
+        _encodeStringUtf8(s);
+        return;
+      }
+      _buffer[dataStart + i] = cu;
+    }
+    _offset = dataStart + n;
+  }
+
+  void _encodeStringUtf8(String s) {
     final enc = _utf8.convert(s);
     final m = enc.length;
     if (m <= 31) {

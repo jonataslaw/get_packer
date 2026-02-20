@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 class BoolList extends ListBase<bool> {
   /// Bit-packed boolean list
-  ///
   /// `List<bool>` is expensive in both size and decode time
   BoolList(this._length) : _bytes = Uint8List((_length + 7) >> 3);
   BoolList._(this._length, this._bytes);
@@ -22,7 +21,7 @@ class BoolList extends ListBase<bool> {
 
   @override
   bool operator [](int index) {
-    if (index < 0 || index >= length) throw RangeError.index(index, this);
+    RangeError.checkValidIndex(index, this);
     final byte = index >> 3;
     final bit = index & 7;
     return (_bytes[byte] & (1 << bit)) != 0;
@@ -30,7 +29,7 @@ class BoolList extends ListBase<bool> {
 
   @override
   void operator []=(int index, bool value) {
-    if (index < 0 || index >= length) throw RangeError.index(index, this);
+    RangeError.checkValidIndex(index, this);
     final byte = index >> 3;
     final bit = index & 7;
     final mask = 1 << bit;
@@ -40,10 +39,21 @@ class BoolList extends ListBase<bool> {
 
   Uint8List asBytesView() => _bytes;
 
-  static BoolList fromPacked(Uint8List packed, int count) => BoolList._(
+  static BoolList fromPacked(Uint8List packed, int count) {
+    final neededBytes = (count + 7) >> 3;
+    if (packed.lengthInBytes < neededBytes) {
+      throw ArgumentError('Packed data too small for $count bools');
+    }
+
+    return BoolList._(
       count,
       Uint8List.view(
-          packed.buffer, packed.offsetInBytes, packed.lengthInBytes));
+        packed.buffer,
+        packed.offsetInBytes,
+        neededBytes,
+      ),
+    );
+  }
 
   static BoolList fromList(List<bool> src) {
     final dst = BoolList(src.length);
