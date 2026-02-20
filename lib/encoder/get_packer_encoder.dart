@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../objects/ext_type.dart';
 import '../objects/get_packer_config.dart';
 
 class GetPackerEncoder {
