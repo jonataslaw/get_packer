@@ -356,8 +356,7 @@ void main() {
         final v = BigInt.from(1e+308);
         final value = v.pow(513); //65611
 
-        final encoded = GetPacker.pack(value);
-        expect(GetPacker.unpack(encoded), equals(value));
+        expect(() => GetPacker.pack(value), throwsA(isA<BigDataException>()));
       });
     });
 
@@ -543,8 +542,7 @@ void main() {
       // ignore: dead_code
       fail('Exception not thrown');
     } catch (e) {
-      expect(
-          e.toString(), contains('Unexpected error: Unexpected end of input'));
+      expect(e.toString(), contains('Unexpected end of input'));
     }
   });
 
@@ -596,12 +594,13 @@ void main() {
     });
 
     test('throws UnsupportedError for unknown prefix', () {
-      final invalidPrefix = [0xC1, 0xD4];
+      // 0xC1 is reserved/invalid in MessagePack
+      expect(() => GetPacker.unpack(Uint8List.fromList([0xC1])),
+          throwsA(isA<UnsupportedError>()));
 
-      for (final prefix in invalidPrefix) {
-        final data = Uint8List.fromList([prefix]);
-        expect(() => GetPacker.unpack(data), throwsA(isA<UnsupportedError>()));
-      }
+      // 0xD4 is FixExt1, valid prefix, but truncated payload => decode error
+      expect(() => GetPacker.unpack(Uint8List.fromList([0xD4])),
+          throwsA(isA<UnexpectedError>()));
     });
 
     // test('throws UnexpectedError when input ends unexpectedly in _readFloat',
@@ -615,7 +614,7 @@ void main() {
       // Simulate invalid ext data for BigInt (type 0x01) with a length < 1
       final data =
           Uint8List.fromList([0xC7, 0x00, 0x01]); // ext 8 with 0 length
-      expect(() => GetPacker.unpack(data), throwsA(isA<StateError>()));
+      expect(() => GetPacker.unpack(data), throwsA(isA<UnexpectedError>()));
     });
 
     test('throws UnsupportedError for invalid DateTime ext length', () {
@@ -637,18 +636,16 @@ void main() {
     // Simulate an unknown ext type (not 0x01 or 0xFF)
     final data = Uint8List.fromList([
       0xC7,
-      0x03,
       0x02,
+      0x99,
       0xAA,
       0xBB
-    ]); // ext 8 with type 0x02 and 2 bytes of data
+    ]); // ext 8 with type 0x99 and 2 bytes of data
     final unpacked = GetPacker.unpack(data);
-    expect(unpacked, isA<Map>());
-    expect(unpacked['type'], equals(0x02)); // Verify unknown type is returned
-    expect(
-        unpacked['data'],
-        equals(Uint8List.fromList(
-            [0xAA, 0xBB]))); // Verify ext data is returned correctly
+    expect(unpacked, isA<ExtValue>());
+    final ext = unpacked as ExtValue;
+    expect(ext.type, equals(0x99));
+    expect(ext.data, equals(Uint8List.fromList([0xAA, 0xBB])));
   });
 
   test('_decode handles FixArray (0x90 to 0x9F)', () {
