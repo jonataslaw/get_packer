@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import '../enums/web_interop_mode.dart';
 import '../objects/ext_type.dart';
 import '../objects/get_packer_config.dart';
 

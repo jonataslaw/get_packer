@@ -65,21 +65,6 @@ class GetPacker {
   }
 }
 
-/// A mixin that adds `pack()` functionality to custom model classes.
-///
-/// Classes using this mixin must implement a `toJson()` method that returns a
-/// `Map<String, dynamic>`, which can then be serialized to MessagePack format.
-mixin PackedModel {
-  /// Packs the model object into a `Uint8List`.
-  ///
-  /// This is achieved by first converting the object to a map using `toJson()`
-  /// and then packing the resulting map.
-  Uint8List pack() => GetPacker.pack(toJson());
-
-  /// Abstract method that must be implemented to provide a serializable
-  /// map representation of the object.
-  Map<String, dynamic> toJson();
-}
 
 /// Internal class responsible for the decoding (unpacking) process.
 /// It reads from a `Uint8List` and reconstructs Dart objects.
