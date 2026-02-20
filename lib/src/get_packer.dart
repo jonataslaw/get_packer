@@ -14,7 +14,8 @@ class GetPacker {
   static Uint8List pack(dynamic value,
       {GetPackerConfig config = const GetPackerConfig(),
       bool trimOnFinish = false}) {
-    final encoder = GetPackerEncoder(config: config, trimOnFinish: trimOnFinish);
+    final encoder =
+        GetPackerEncoder(config: config, trimOnFinish: trimOnFinish);
     return encoder.pack(value);
   }
 

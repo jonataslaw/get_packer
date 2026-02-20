@@ -593,20 +593,12 @@ class _Packer {
   }
 
   void _encodeTypedListRaw(int type, int count, Uint8List raw, int elemSize) {
-    // TypedData is native-endian and ideally aligned
-    // Preserve the bytes as-is and add a small padding window so the decoder can
-    // return a zero-copy view
     final int align = elemSize.clamp(1, 8);
-    const int s8 = 7, s16 = 8, s32 = 10;
 
+    // Try ext8 first
+    const int s8 = 7;
     final int pad8 = (-(_offset + s8)) & (align - 1);
-    final int pad16 = (-(_offset + s16)) & (align - 1);
-    final int pad32 = (-(_offset + s32)) & (align - 1);
-
     final int dataLen8 = 4 + pad8 + raw.length;
-    final int dataLen16 = 4 + pad16 + raw.length;
-    final int dataLen32 = 4 + pad32 + raw.length;
-
     if (dataLen8 <= 0xFF) {
       _ensureBuffer(s8 + pad8 + raw.length);
       _buffer[_offset++] = 0xC7;
@@ -623,6 +615,10 @@ class _Packer {
       return;
     }
 
+    // ext16
+    const int s16 = 8;
+    final int pad16 = (-(_offset + s16)) & (align - 1);
+    final int dataLen16 = 4 + pad16 + raw.length;
     if (dataLen16 <= 0xFFFF) {
       _ensureBuffer(s16 + pad16 + raw.length);
       _buffer[_offset++] = 0xC8;
@@ -639,6 +635,11 @@ class _Packer {
       _offset += raw.length;
       return;
     }
+
+    // ext32
+    const int s32 = 10;
+    final int pad32 = (-(_offset + s32)) & (align - 1);
+    final int dataLen32 = 4 + pad32 + raw.length;
 
     _ensureBuffer(s32 + pad32 + raw.length);
     _buffer[_offset++] = 0xC9;

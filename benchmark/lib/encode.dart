@@ -78,10 +78,12 @@ class JsonEncodeBenchmark extends BenchmarkBase {
 class GetPackerEncodeBenchmark extends BenchmarkBase {
   GetPackerEncodeBenchmark() : super('GetPacker Encode');
 
+  final GetPacker packer = GetPacker();
+
   @override
   void run() {
-    final foo = GetPacker.pack(testData);
-    GetPacker.unpack(foo);
+    final foo = packer.encode(testData);
+    packer.decode(foo);
   }
 }
 

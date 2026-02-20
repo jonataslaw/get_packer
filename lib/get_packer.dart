@@ -1,4 +1,4 @@
-library get_packer;
+library;
 
 export 'src/decoder/get_packer_decoder.dart';
 export 'src/encoder/get_packer_encoder.dart';
