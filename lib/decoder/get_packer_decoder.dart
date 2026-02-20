@@ -4,7 +4,9 @@ import 'dart:typed_data';
 import '../enums/web_interop_mode.dart';
 import '../errors/unexpected_error_exception.dart';
 import '../internal/numeric_runtime.dart';
+import '../internal/packed_bool_list.dart';
 import '../objects/ext_type.dart';
+import '../objects/ext_value.dart';
 import '../objects/get_packer_config.dart';
 
 class GetPackerDecoder {
