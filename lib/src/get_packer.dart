@@ -5,12 +5,10 @@ import 'encoder/get_packer_encoder.dart';
 import 'objects/get_packer_config.dart';
 
 class GetPacker {
-  /// Convenience wrapper around the encoder and decoder
+  /// Convenience wrapper around the encoder/decoder.
   ///
-  /// Static methods are fine for one-offs
-  /// The instance keeps state around so hot loops don't keep allocating
-  ///
-  /// If you're writing persisted blobs, you probably want `trimOnFinish`
+  /// Use the static methods for one-offs. Use the instance APIs in hot paths to
+  /// reuse buffers. For persisted blobs, consider `trimOnFinish`.
   static Uint8List pack(dynamic value,
       {GetPackerConfig config = const GetPackerConfig(),
       bool trimOnFinish = false}) {
@@ -31,7 +29,7 @@ class GetPacker {
 
   /// Stateful packer
   ///
-  /// This defaults to tight outputs since it is usually used for persisted blobs
+  /// Defaults to tight outputs; handy for persisted blobs.
   GetPacker({GetPackerConfig config = const GetPackerConfig()})
       : _encoder = GetPackerEncoder(config: config, trimOnFinish: true),
         _decoder = GetPackerDecoder(config: config);

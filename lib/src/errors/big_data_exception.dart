@@ -1,6 +1,6 @@
-/// Guardrail for payloads that would blow up memory
+/// Thrown when an input exceeds configured size caps.
 ///
-/// These usually surface as runtime data issues, not programmer mistakes
+/// Typically this indicates unexpected data, not a programmer mistake.
 class BigDataException implements Exception {
   BigDataException(this.data, {this.reason});
   final dynamic data;

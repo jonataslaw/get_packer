@@ -29,7 +29,7 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  get_packer: ^1.0.0
+  get_packer: ^2.0.0
 ```
 
 Then run `dart pub get` or `flutter pub get` if you're using Flutter.
@@ -224,6 +224,15 @@ void main() {
 ## Note
 
 - GetPacker uses a custom binary format and IS NOT COMPATIBLE with MessagePack.
+- Integers are the most platform/SDK-sensitive part of Dart’s numeric model:
+  - On Dart 3.11 (native VM/AOT), `int` is a signed 64-bit two’s-complement integer.
+    - Overflow wraps (for example, `9223372036854775807 + 1 == -9223372036854775808`).
+    - Shifts past the word size wrap/zero out (for example, `1 << 64 == 0`).
+    - Integer literals outside the signed 64-bit range are compile-time errors.
+  - On the web, `int` is represented using JavaScript `Number` (53 bits of integer precision), and bitwise/shift operators use JavaScript 32-bit semantics.
+  - GetPacker always preserves integer values on the wire. When decoding, it returns an `int` only if the value is exactly representable as an `int` on the current runtime; otherwise it returns a `BigInt`.
+  - Upgrade note for production databases: values previously encoded as unsigned 64-bit integers above `2^63-1` may have decoded as `int` on older runtimes, but will decode as `BigInt` on Dart 3.11+. The numeric value is preserved; only the Dart type can change.
+  - On the web, `intInteropMode` controls whether values outside JavaScript’s safe integer range are returned as `BigInt`.
 
 ## Contributing
 

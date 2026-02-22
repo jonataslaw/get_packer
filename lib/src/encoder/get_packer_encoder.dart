@@ -1,11 +1,12 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import '../enums/web_interop_mode.dart';
+import '../enums/int_interop_mode.dart';
 import '../errors/big_data_exception.dart';
 import '../errors/unexpected_error_exception.dart';
 import '../internal/numeric_runtime.dart';
 import '../internal/packed_bool_list.dart';
+import '../internal/web_wide_int_encoding.dart';
 import '../mixins/packed_model.dart';
 import '../objects/ext_type.dart';
 import '../objects/get_packer_config.dart';
@@ -56,6 +57,32 @@ class _Packer {
   int _offset = 0;
 
   final Float32List _f32 = Float32List(1);
+
+  @pragma('vm:prefer-inline')
+  int _capU32(int value) {
+    if (value <= 0) return 0;
+    return value > 0xFFFFFFFF ? 0xFFFFFFFF : value;
+  }
+
+  @pragma('vm:prefer-inline')
+  void _writeExtHeader(int extType, int payloadLength) {
+    if (payloadLength <= 0xFF) {
+      _ensureBuffer(1 + 1 + 1 + payloadLength);
+      _buffer[_offset++] = 0xC7;
+      _buffer[_offset++] = payloadLength;
+    } else if (payloadLength <= 0xFFFF) {
+      _ensureBuffer(1 + 2 + 1 + payloadLength);
+      _buffer[_offset++] = 0xC8;
+      _bd.setUint16(_offset, payloadLength, Endian.big);
+      _offset += 2;
+    } else {
+      _ensureBuffer(1 + 4 + 1 + payloadLength);
+      _buffer[_offset++] = 0xC9;
+      _bd.setUint32(_offset, payloadLength, Endian.big);
+      _offset += 4;
+    }
+    _buffer[_offset++] = extType;
+  }
 
   void _ensureBuffer(int additional) {
     final required = _offset + additional;
@@ -226,10 +253,22 @@ class _Packer {
   void _encodeInt(int v) {
     // On the VM we can safely carry 64-bit ints around
     // On the web, wide ints either become BigInt or precision bugs
-    if (_cfg.webInteropMode == WebInteropMode.requireBigIntForWide &&
+    if (_cfg.intInteropMode == IntInteropMode.requireBigIntForWide &&
         (v > kMaxSafeJsInt || v < kMinSafeJsInt)) {
       throw ArgumentError(
-          'Integers beyond ±2^53−1 require BigInt when webInteropMode=requireBigIntForWide: $v');
+          'Integers beyond ±2^53−1 require BigInt when intInteropMode=requireBigIntForWide: $v');
+    }
+
+    final bool outsideNative64BitRange =
+        v >= 0 ? v.bitLength > 64 : v < -0x8000000000000000;
+    if (tryEncodeWebWideInt(
+      isWeb: kIsWeb,
+      outsideNative64BitRange: outsideNative64BitRange,
+      mode: _cfg.intInteropMode,
+      value: v,
+      encode: _encodeSignedMagnitudeExtForValue,
+    )) {
+      return;
     }
 
     if (v >= 0) {
@@ -265,13 +304,6 @@ class _Packer {
         _offset += 8;
         return;
       }
-
-      if (_cfg.webInteropMode == WebInteropMode.promoteWideToBigInt) {
-        _encodeBigInt(BigInt.from(v));
-      } else {
-        _encodeWideInt(v);
-      }
-      return;
     } else {
       if (v >= -32) {
         _ensureBuffer(1);
@@ -306,11 +338,6 @@ class _Packer {
         _offset += 8;
         return;
       }
-      if (_cfg.webInteropMode == WebInteropMode.promoteWideToBigInt) {
-        _encodeBigInt(BigInt.from(v));
-      } else {
-        _encodeWideInt(v);
-      }
     }
   }
 
@@ -336,9 +363,9 @@ class _Packer {
     // Single-pass ASCII fast path (check + copy in one loop).
     // If we hit non-ASCII, rollback and go through UTF-8.
     final int n = s.length;
-    if (n > 0xFFFFFFFF) {
-      throw BigDataException(s,
-          reason: 'string length $n exceeds 2^32-1 bytes');
+    final int cap = _capU32(_cfg.maxStringUtf8Bytes);
+    if (n > cap) {
+      throw BigDataException(s, reason: 'string length $n exceeds cap $cap B');
     }
 
     final int start = _offset;
@@ -380,6 +407,10 @@ class _Packer {
   void _encodeStringUtf8(String s) {
     final enc = _utf8.convert(s);
     final m = enc.length;
+    final int cap = _capU32(_cfg.maxStringUtf8Bytes);
+    if (m > cap) {
+      throw BigDataException(s, reason: 'UTF-8 length $m exceeds cap $cap B');
+    }
     if (m <= 31) {
       _ensureBuffer(1 + m);
       _buffer[_offset++] = 0xA0 | m;
@@ -392,13 +423,11 @@ class _Packer {
       _buffer[_offset++] = 0xDA;
       _bd.setUint16(_offset, m, Endian.big);
       _offset += 2;
-    } else if (m <= 0xFFFFFFFF) {
+    } else {
       _ensureBuffer(5 + m);
       _buffer[_offset++] = 0xDB;
       _bd.setUint32(_offset, m, Endian.big);
       _offset += 4;
-    } else {
-      throw BigDataException(s, reason: 'UTF-8 length $m exceeds 2^32-1 bytes');
     }
     _buffer.setRange(_offset, _offset + m, enc);
     _offset += m;
@@ -406,6 +435,11 @@ class _Packer {
 
   void _encodeBinary(Uint8List data) {
     final length = data.length;
+    final int cap = _capU32(_cfg.maxBinaryBytes);
+    if (length > cap) {
+      throw BigDataException(data,
+          reason: 'binary length $length exceeds cap $cap B');
+    }
     if (length <= 0xFF) {
       _ensureBuffer(2 + length);
       _buffer[_offset++] = 0xC4;
@@ -415,13 +449,11 @@ class _Packer {
       _buffer[_offset++] = 0xC5;
       _bd.setUint16(_offset, length, Endian.big);
       _offset += 2;
-    } else if (length <= 0xFFFFFFFF) {
+    } else {
       _ensureBuffer(5 + length);
       _buffer[_offset++] = 0xC6;
       _bd.setUint32(_offset, length, Endian.big);
       _offset += 4;
-    } else {
-      throw BigDataException(data);
     }
     _buffer.setRange(_offset, _offset + length, data);
     _offset += length;
@@ -429,6 +461,11 @@ class _Packer {
 
   void _encodeListOfIntsAsArray(List<int> list) {
     final length = list.length;
+    final int cap = _capU32(_cfg.maxArrayLength);
+    if (length > cap) {
+      throw BigDataException(list,
+          reason: 'array length $length exceeds cap $cap');
+    }
     if (length <= 0xF) {
       _ensureBuffer(1);
       _buffer[_offset++] = 0x90 | length;
@@ -437,13 +474,11 @@ class _Packer {
       _buffer[_offset++] = 0xDC;
       _bd.setUint16(_offset, length, Endian.big);
       _offset += 2;
-    } else if (length <= 0xFFFFFFFF) {
+    } else {
       _ensureBuffer(5);
       _buffer[_offset++] = 0xDD;
       _bd.setUint32(_offset, length, Endian.big);
       _offset += 4;
-    } else {
-      throw BigDataException(list);
     }
     for (int i = 0; i < length; i++) {
       _encodeInt(list[i]);
@@ -455,6 +490,18 @@ class _Packer {
     // When it pays off, store them as typed payloads so decode can hand back a
     // view instead of N tagged integers
     final int n = list.length;
+
+    // In promote/require modes we must not emit 64-bit typed list payloads for
+    // values outside the JS-safe range, because TypedData elements are `int`
+    // and cannot round-trip as BigInt on JS-backed runtimes.
+    //
+    // - requireBigIntForWide: reject early (force callers to use BigInt).
+    // - promoteWideToBigInt: fall back to array encoding so per-element
+    //   encoding can choose BigInt/wideInt as needed.
+    final bool requireBigIntForWide =
+        _cfg.intInteropMode == IntInteropMode.requireBigIntForWide;
+    final bool promoteWideToBigInt =
+        _cfg.intInteropMode == IntInteropMode.promoteWideToBigInt;
 
     if (n == 0) {
       _ensureBuffer(2);
@@ -497,8 +544,28 @@ class _Packer {
         return;
       }
 
+      final bool jsSafe = (min >= kMinSafeJsInt && max <= kMaxSafeJsInt);
+      if (!jsSafe && (requireBigIntForWide || promoteWideToBigInt)) {
+        if (requireBigIntForWide) {
+          throw ArgumentError(
+              'List<int> contains values outside ±2^53−1; use BigInt (intInteropMode=requireBigIntForWide)');
+        }
+        _encodeListOfIntsAsArray(list);
+        return;
+      }
+
       final bigMin = BigInt.from(min);
       final bigMax = BigInt.from(max);
+      if (tryEncodeWebWideIntListAsArray(
+        isWeb: kIsWeb,
+        min: min,
+        bigMin: bigMin,
+        bigMax: bigMax,
+        list: list,
+        encodeAsArray: _encodeListOfIntsAsArray,
+      )) {
+        return;
+      }
       if (min >= 0 && bigMax <= kMaxUint64Big) {
         _encodeIntListDirect(ExtType.uint64List, list, 8);
         return;
@@ -507,12 +574,15 @@ class _Packer {
         _encodeIntListDirect(ExtType.int64List, list, 8);
         return;
       }
-
-      _encodeListOfIntsAsArray(list);
-      return;
     }
 
     final start = _offset;
+
+    final int cap = _capU32(_cfg.maxBinaryBytes);
+    if (n > cap) {
+      throw BigDataException(list,
+          reason: 'binary length $n exceeds cap $cap B');
+    }
 
     if (n <= 0xFF) {
       _ensureBuffer(2 + n);
@@ -523,13 +593,11 @@ class _Packer {
       _buffer[_offset++] = 0xC5;
       _bd.setUint16(_offset, n, Endian.big);
       _offset += 2;
-    } else if (n <= 0xFFFFFFFF) {
+    } else {
       _ensureBuffer(5 + n);
       _buffer[_offset++] = 0xC6;
       _bd.setUint32(_offset, n, Endian.big);
       _offset += 4;
-    } else {
-      throw BigDataException(list);
     }
 
     final dataStart = _offset;
@@ -571,8 +639,28 @@ class _Packer {
           _encodeIntListDirect(ExtType.int32List, list, 4);
           return;
         }
+
+        final bool jsSafe = (min >= kMinSafeJsInt && max <= kMaxSafeJsInt);
+        if (!jsSafe && (requireBigIntForWide || promoteWideToBigInt)) {
+          if (requireBigIntForWide) {
+            throw ArgumentError(
+                'List<int> contains values outside ±2^53−1; use BigInt (intInteropMode=requireBigIntForWide)');
+          }
+          _encodeListOfIntsAsArray(list);
+          return;
+        }
         final bigMin = BigInt.from(min);
         final bigMax = BigInt.from(max);
+        if (tryEncodeWebWideIntListAsArray(
+          isWeb: kIsWeb,
+          min: min,
+          bigMin: bigMin,
+          bigMax: bigMax,
+          list: list,
+          encodeAsArray: _encodeListOfIntsAsArray,
+        )) {
+          return;
+        }
         if (min >= 0 && bigMax <= kMaxUint64Big) {
           _encodeIntListDirect(ExtType.uint64List, list, 8);
           return;
@@ -581,8 +669,6 @@ class _Packer {
           _encodeIntListDirect(ExtType.int64List, list, 8);
           return;
         }
-        _encodeListOfIntsAsArray(list);
-        return;
       }
       if (v < min) min = v;
       if (v > max) max = v;
@@ -847,10 +933,7 @@ class _Packer {
   }
 
   void _encodeArray(Iterable it, int depth) {
-    if (it is Set) {
-      _encodeSet(it, depth);
-      return;
-    }
+    final int cap = _capU32(_cfg.maxArrayLength);
 
     if (it is List) {
       if (it is List<int>) {
@@ -863,6 +946,10 @@ class _Packer {
       }
 
       final length = it.length;
+      if (length > cap) {
+        throw BigDataException(it,
+            reason: 'array length $length exceeds cap $cap');
+      }
       if (length <= 0xF) {
         _ensureBuffer(1);
         _buffer[_offset++] = 0x90 | length;
@@ -871,13 +958,11 @@ class _Packer {
         _buffer[_offset++] = 0xDC;
         _bd.setUint16(_offset, length, Endian.big);
         _offset += 2;
-      } else if (length <= 0xFFFFFFFF) {
+      } else {
         _ensureBuffer(5);
         _buffer[_offset++] = 0xDD;
         _bd.setUint32(_offset, length, Endian.big);
         _offset += 4;
-      } else {
-        throw BigDataException(it);
       }
       for (int i = 0; i < length; i++) {
         _encode(it[i], depth + 1);
@@ -888,7 +973,10 @@ class _Packer {
     var length = 0;
     for (final _ in it) {
       length++;
-      if (length > 0xFFFFFFFF) throw BigDataException(it);
+      if (length > cap) {
+        throw BigDataException(it,
+            reason: 'array length $length exceeds cap $cap');
+      }
     }
     if (length <= 0xF) {
       _ensureBuffer(1);
@@ -911,6 +999,10 @@ class _Packer {
 
   void _encodeSet(Set set, int depth) {
     final count = set.length;
+    final int cap = _capU32(_cfg.maxArrayLength);
+    if (count > cap) {
+      throw BigDataException(set, reason: 'set length $count exceeds cap $cap');
+    }
     _ensureBuffer(1 + 4 + 1 + 4);
     _buffer[_offset++] = 0xC9;
     final lenPos = _offset;
@@ -930,6 +1022,11 @@ class _Packer {
 
   void _encodeMap(Map<dynamic, dynamic> map, int depth) {
     final length = map.length;
+    final int cap = _capU32(_cfg.maxMapLength);
+    if (length > cap) {
+      throw BigDataException(map,
+          reason: 'map length $length exceeds cap $cap');
+    }
 
     if (length <= 0xF) {
       _ensureBuffer(1);
@@ -939,13 +1036,11 @@ class _Packer {
       _buffer[_offset++] = 0xDE;
       _bd.setUint16(_offset, length, Endian.big);
       _offset += 2;
-    } else if (length <= 0xFFFFFFFF) {
+    } else {
       _ensureBuffer(5);
       _buffer[_offset++] = 0xDF;
       _bd.setUint32(_offset, length, Endian.big);
       _offset += 4;
-    } else {
-      throw BigDataException(map);
     }
 
     if (length == 0) return;
@@ -1017,6 +1112,14 @@ class _Packer {
     final enc = _utf8.convert(value.toString());
     final m = enc.length;
 
+    final int uriCap = _capU32(_cfg.maxUriUtf8Bytes);
+    final int extCap = _capU32(_cfg.maxExtPayloadBytes);
+    final int cap = uriCap < extCap ? uriCap : extCap;
+    if (m > cap) {
+      throw BigDataException(value,
+          reason: 'URI UTF-8 length $m exceeds cap $cap B');
+    }
+
     if (m <= 0xFF) {
       _ensureBuffer(1 + 1 + 1 + m);
       _buffer[_offset++] = 0xC7;
@@ -1028,15 +1131,12 @@ class _Packer {
       _bd.setUint16(_offset, m, Endian.big);
       _offset += 2;
       _buffer[_offset++] = ExtType.uri;
-    } else if (m <= 0xFFFFFFFF) {
+    } else {
       _ensureBuffer(1 + 4 + 1 + m);
       _buffer[_offset++] = 0xC9;
       _bd.setUint32(_offset, m, Endian.big);
       _offset += 4;
       _buffer[_offset++] = ExtType.uri;
-    } else {
-      throw BigDataException(value,
-          reason: 'URI UTF-8 length $m exceeds 2^32-1 bytes');
     }
 
     _buffer.setRange(_offset, _offset + m, enc);
@@ -1044,37 +1144,35 @@ class _Packer {
   }
 
   void _encodeBigInt(BigInt value) {
+    _encodeSignedMagnitudeExtForValue(ExtType.bigInt, value);
+  }
+
+  void _encodeSignedMagnitudeExtForValue(int extType, Object value) {
+    final BigInt big = value is BigInt ? value : BigInt.from(value as int);
+    _encodeSignedMagnitudeExt(extType, big, value);
+  }
+
+  void _encodeSignedMagnitudeExt(
+      int extType, BigInt value, Object originalValue) {
     // BigInt is the correctness-first path
     // Keep it bounded so payloads can't force pathological allocations
     final bool neg = value.isNegative;
     final BigInt mag = neg ? -value : value;
     final int magBytes = mag == BigInt.zero ? 0 : (mag.bitLength + 7) >> 3;
     if (magBytes > _cfg.maxBigIntMagnitudeBytes) {
-      throw BigDataException(value,
+      throw BigDataException(originalValue,
           reason:
               'BigInt magnitude ${magBytes}B exceeds cap ${_cfg.maxBigIntMagnitudeBytes}B');
     }
     final payloadLength = 1 + magBytes;
 
-    if (payloadLength <= 0xFF) {
-      _ensureBuffer(1 + 1 + 1 + payloadLength);
-      _buffer[_offset++] = 0xC7;
-      _buffer[_offset++] = payloadLength;
-    } else if (payloadLength <= 0xFFFF) {
-      _ensureBuffer(1 + 2 + 1 + payloadLength);
-      _buffer[_offset++] = 0xC8;
-      _bd.setUint16(_offset, payloadLength, Endian.big);
-      _offset += 2;
-    } else if (payloadLength <= 0xFFFFFFFF) {
-      _ensureBuffer(1 + 4 + 1 + payloadLength);
-      _buffer[_offset++] = 0xC9;
-      _bd.setUint32(_offset, payloadLength, Endian.big);
-      _offset += 4;
-    } else {
-      throw BigDataException(value);
+    final int cap = _capU32(_cfg.maxExtPayloadBytes);
+    if (payloadLength > cap) {
+      throw BigDataException(originalValue,
+          reason: 'ext payload length $payloadLength exceeds cap $cap B');
     }
 
-    _buffer[_offset++] = ExtType.bigInt;
+    _writeExtHeader(extType, payloadLength);
     _buffer[_offset++] = neg ? 0x01 : 0x00;
 
     final int dst = _offset;
@@ -1100,42 +1198,5 @@ class _Packer {
       _buffer[dst + i] = (v & kMask8).toInt();
       v = v >> 8;
     }
-  }
-
-  void _encodeWideInt(int value) {
-    // wideInt exists so we can keep `int` on the VM without losing values
-    // On decode we may return int or BigInt depending on platform and mode
-    final bool neg = value.isNegative;
-    final BigInt mag = BigInt.from(neg ? -value : value);
-    final int magBytes = mag == BigInt.zero ? 0 : (mag.bitLength + 7) >> 3;
-    if (magBytes > _cfg.maxBigIntMagnitudeBytes) {
-      throw BigDataException(value,
-          reason:
-              'wideInt magnitude ${magBytes}B exceeds cap ${_cfg.maxBigIntMagnitudeBytes}B');
-    }
-    final int payloadLength = 1 + magBytes;
-
-    if (payloadLength <= 0xFF) {
-      _ensureBuffer(1 + 1 + 1 + payloadLength);
-      _buffer[_offset++] = 0xC7;
-      _buffer[_offset++] = payloadLength;
-    } else if (payloadLength <= 0xFFFF) {
-      _ensureBuffer(1 + 2 + 1 + payloadLength);
-      _buffer[_offset++] = 0xC8;
-      _bd.setUint16(_offset, payloadLength, Endian.big);
-      _offset += 2;
-    } else {
-      _ensureBuffer(1 + 4 + 1 + payloadLength);
-      _buffer[_offset++] = 0xC9;
-      _bd.setUint32(_offset, payloadLength, Endian.big);
-      _offset += 4;
-    }
-
-    _buffer[_offset++] = ExtType.wideInt;
-    _buffer[_offset++] = neg ? 0x01 : 0x00;
-
-    final int dst = _offset;
-    _offset += magBytes;
-    _writeBigIntMagnitudeBE(mag, dst, magBytes);
   }
 }

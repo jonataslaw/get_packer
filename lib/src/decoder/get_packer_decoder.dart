@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import '../enums/web_interop_mode.dart';
 import '../errors/unexpected_error_exception.dart';
+import '../internal/int_coercion.dart';
 import '../internal/numeric_runtime.dart';
 import '../internal/packed_bool_list.dart';
 import '../objects/ext_type.dart';
@@ -18,6 +18,14 @@ class GetPackerDecoder {
 
   void reset(Uint8List bytes) => _u.setInput(bytes);
   T unpack<T>() => _u._decodeRoot<T>();
+
+  void skipValue() => _u.skipValue();
+
+  /// Current cursor offset (useful for streaming / debugging).
+  int get offset => _u._offset;
+
+  /// True when all bytes have been consumed.
+  bool get isDone => _u._offset >= _u._bytes.length;
 }
 
 class _Unpacker {
@@ -55,15 +63,11 @@ class _Unpacker {
   bool _isStrPrefix(int p) =>
       (p >= 0xA0 && p <= 0xBF) || p == 0xD9 || p == 0xDA || p == 0xDB;
 
-  String _readStringViaPrefix() {
-    final prefix = _bytes[_offset++];
+  String _readStringViaPrefix(int prefix) {
     if (prefix >= 0xA0 && prefix <= 0xBF) return _readString(prefix & 0x1F);
     if (prefix == 0xD9) return _readString(_readUint8());
     if (prefix == 0xDA) return _readString(_readUint16());
-    if (prefix == 0xDB) return _readString(_readUint32());
-    throw UnexpectedError(
-        'Map key is not a string (prefix 0x${prefix.toRadixString(16)})',
-        offset: _offset - 1);
+    return _readString(_readUint32());
   }
 
   dynamic _decode(int depth) {
@@ -228,16 +232,12 @@ class _Unpacker {
     final lo = _bd.getUint32(_offset + 4, Endian.big);
     _offset += 8;
 
-    final safe = hi <= 0x001FFFFF;
-    switch (_cfg.webInteropMode) {
-      case WebInteropMode.off:
-        if (kIsWeb && !safe) return (BigInt.from(hi) << 32) | BigInt.from(lo);
-        return hi * 4294967296 + lo;
-      case WebInteropMode.promoteWideToBigInt:
-      case WebInteropMode.requireBigIntForWide:
-        if (safe) return hi * 4294967296 + lo;
-        return (BigInt.from(hi) << 32) | BigInt.from(lo);
-    }
+    return uint64FromParts(
+      hi,
+      lo,
+      isWeb: kIsWeb,
+      mode: _cfg.intInteropMode,
+    );
   }
 
   dynamic _readInt64Smart() {
@@ -246,29 +246,12 @@ class _Unpacker {
     final lo = _bd.getUint32(_offset + 4, Endian.big);
     _offset += 8;
 
-    final neg = (hiU & 0x80000000) != 0;
-
-    final bool safe = !neg
-        ? (hiU <= 0x001FFFFF)
-        : ((hiU > 0xFFE00000) || (hiU == 0xFFE00000 && lo != 0));
-
-    switch (_cfg.webInteropMode) {
-      case WebInteropMode.off:
-        if (kIsWeb && !safe) {
-          final hiSignedBig = BigInt.from(neg ? (hiU - 0x100000000) : hiU);
-          return (hiSignedBig << 32) + BigInt.from(lo);
-        }
-        final hiSigned = neg ? (hiU - 0x100000000) : hiU;
-        return hiSigned * 4294967296 + lo;
-      case WebInteropMode.promoteWideToBigInt:
-      case WebInteropMode.requireBigIntForWide:
-        if (safe) {
-          final hiSigned = neg ? (hiU - 0x100000000) : hiU;
-          return hiSigned * 4294967296 + lo;
-        }
-        final hiSignedBig = BigInt.from(neg ? (hiU - 0x100000000) : hiU);
-        return (hiSignedBig << 32) + BigInt.from(lo);
-    }
+    return int64FromParts(
+      hiU,
+      lo,
+      isWeb: kIsWeb,
+      mode: _cfg.intInteropMode,
+    );
   }
 
   @pragma('vm:prefer-inline')
@@ -336,7 +319,8 @@ class _Unpacker {
         }
         if (!_isStrPrefix(_bytes[_offset])) break;
 
-        final key = _readStringViaPrefix();
+        final keyPrefix = _bytes[_offset++];
+        final key = _readStringViaPrefix(keyPrefix);
         final value = _decode(depth + 1);
         sMap[key] = value;
         i++;
@@ -415,8 +399,7 @@ class _Unpacker {
   }
 
   dynamic _readExt(int payloadLength, int depth) {
-    // Ext payloads start with a 1-byte type tag, then a type-specific body
-    // For typed lists we also allow a few padding bytes so views stay aligned
+    // Ext payload: 1-byte type tag + body. Typed lists may include padding for alignment.
     _need(payloadLength + 1);
     final type = _bytes[_offset++];
     final payloadStart = _offset;
@@ -429,10 +412,6 @@ class _Unpacker {
       }
       final isUtc = _bytes[_offset++] != 0;
       final micros = _readInt64();
-      if (_offset != endOfPayload) {
-        throw UnexpectedError('Trailing bytes in DateTime ext',
-            offset: _offset);
-      }
       return DateTime.fromMicrosecondsSinceEpoch(micros, isUtc: isUtc);
     }
 
@@ -442,10 +421,6 @@ class _Unpacker {
             offset: _offset);
       }
       final micros = _readInt64();
-      if (_offset != endOfPayload) {
-        throw UnexpectedError('Trailing bytes in Duration ext',
-            offset: _offset);
-      }
       return Duration(microseconds: micros);
     }
 
@@ -463,9 +438,6 @@ class _Unpacker {
       }
       final start = _offset;
       _offset += magLen;
-      if (_offset != endOfPayload) {
-        throw UnexpectedError('Trailing bytes in BigInt ext', offset: _offset);
-      }
       final magnitude = _bytesToBigIntRange(start, magLen);
       return negative ? -magnitude : magnitude;
     }
@@ -485,33 +457,15 @@ class _Unpacker {
       final magBytes =
           Uint8List.view(_bytes.buffer, _bytes.offsetInBytes + _offset, magLen);
       _offset += magLen;
-      if (_offset != endOfPayload) {
-        throw UnexpectedError('Trailing bytes in wideInt ext', offset: _offset);
-      }
 
       final magnitude = _bytesToBigInt(magBytes);
       final big = negative ? -magnitude : magnitude;
 
-      switch (_cfg.webInteropMode) {
-        case WebInteropMode.off:
-          if (kIsWeb) {
-            if (big >= kMinSafeJsBig && big <= kMaxSafeJsBig) {
-              return big.toInt();
-            }
-            return big;
-          } else {
-            if (big >= kMinInt64Big && big <= kMaxInt64Big) {
-              return big.toInt();
-            }
-            return big;
-          }
-        case WebInteropMode.promoteWideToBigInt:
-        case WebInteropMode.requireBigIntForWide:
-          if (big >= kMinSafeJsBig && big <= kMaxSafeJsBig) {
-            return big.toInt();
-          }
-          return big;
-      }
+      return coerceWideInt(
+        big,
+        isWeb: kIsWeb,
+        mode: _cfg.intInteropMode,
+      );
     }
 
     if (type == ExtType.boolList) {
@@ -530,10 +484,6 @@ class _Unpacker {
       final data = Uint8List.view(
           _bytes.buffer, _bytes.offsetInBytes + _offset, bytesLen);
       _offset += bytesLen;
-      if (_offset != endOfPayload) {
-        throw UnexpectedError('Trailing bytes in boolList ext',
-            offset: _offset);
-      }
       return BoolList.fromPacked(data, count);
     }
 
@@ -590,10 +540,6 @@ class _Unpacker {
           : _utf8.convert(bytes, start, end);
 
       _offset = end;
-
-      if (_offset != endOfPayload) {
-        throw UnexpectedError('Trailing bytes in URI ext', offset: _offset);
-      }
       return Uri.parse(s);
     }
 
@@ -606,8 +552,7 @@ class _Unpacker {
 
   dynamic _readTypedListInt(
       int elemSize, bool signed, int payloadLength, int endOfPayload) {
-    // If the payload is aligned, return a zero-copy TypedData view
-    // Otherwise fall back to a copy
+    // Return a zero-copy TypedData view when aligned; otherwise copy.
     if (payloadLength < 4) {
       throw UnexpectedError('Bad typed list payload', offset: _offset);
     }
@@ -650,12 +595,6 @@ class _Unpacker {
     }
 
     switch (elemSize) {
-      case 1:
-        final out = Int8List(count);
-        out.buffer
-            .asUint8List(out.offsetInBytes, byteLen)
-            .setRange(0, byteLen, data);
-        return out;
       case 2:
         if (signed) {
           final out = Int16List(count);
@@ -699,7 +638,6 @@ class _Unpacker {
           return out;
         }
     }
-    throw UnexpectedError('Unsupported elemSize $elemSize', offset: _offset);
   }
 
   dynamic _readTypedListFloat(

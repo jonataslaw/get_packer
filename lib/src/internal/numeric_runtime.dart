@@ -1,6 +1,6 @@
 // JavaScript Numbers are IEEE-754 doubles, so ints outside ±(2^53-1)
 // silently lose precision
-// webInteropMode decides how strict we are about that
+// intInteropMode decides how strict we are about that
 import 'dart:typed_data';
 
 const int kMaxSafeJsInt = 9007199254740991;
@@ -12,6 +12,20 @@ final BigInt kMask32 = (BigInt.one << 32) - BigInt.one;
 final BigInt kMask8 = BigInt.from(0xFF);
 final BigInt kMinSafeJsBig = BigInt.from(kMinSafeJsInt);
 final BigInt kMaxSafeJsBig = BigInt.from(kMaxSafeJsInt);
+
+/// Convert [big] to an [int] only if the conversion is exact.
+///
+/// Some runtimes can represent arbitrarily large integers as `int`, while others
+/// effectively clamp/wrap or lose precision. This helper keeps decoding
+/// lossless across runtimes.
+int? bigIntToExactInt(BigInt big) {
+  try {
+    final i = big.toInt();
+    return BigInt.from(i) == big ? i : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 // Fast runtime check, avoids pulling in dart:io just to branch
 const bool kIsWeb = identical(0, 0.0);
