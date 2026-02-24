@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import '../errors/unexpected_error_exception.dart';
+import '../errors/get_packer_exceptions.dart';
 import '../internal/int_coercion.dart';
 import '../internal/numeric_runtime.dart';
 import '../internal/packed_bool_list.dart';
@@ -50,8 +50,12 @@ class _Unpacker {
   @pragma('vm:prefer-inline')
   void _need(int n) {
     if (_offset + n > _bytes.length) {
-      throw UnexpectedError('Unexpected end of input; need $n bytes',
-          offset: _offset);
+      throw GetPackerTruncatedInputException(
+        neededBytes: n,
+        offset: _offset,
+        inputLength: _bytes.length,
+        context: '$n bytes',
+      );
     }
   }
 
@@ -72,11 +76,20 @@ class _Unpacker {
 
   dynamic _decode(int depth) {
     if (depth > _cfg.maxDepth) {
-      throw UnexpectedError('Max depth exceeded (${_cfg.maxDepth})',
-          offset: _offset);
+      throw GetPackerMaxDepthExceededException(
+        operation: 'decode',
+        maxDepth: _cfg.maxDepth,
+        depth: depth,
+        offset: _offset,
+      );
     }
     if (_offset >= _bytes.length) {
-      throw UnexpectedError('Unexpected end of input', offset: _offset);
+      throw GetPackerTruncatedInputException(
+        neededBytes: 1,
+        offset: _offset,
+        inputLength: _bytes.length,
+        context: 'value prefix',
+      );
     }
 
     final int prefix = _bytes[_offset++];
@@ -167,8 +180,8 @@ class _Unpacker {
         return _readMap(_readUint32(), depth);
 
       default:
-        throw UnsupportedError(
-            'Unknown prefix: 0x${prefix.toRadixString(16)} at offset ${_offset - 1}');
+        throw GetPackerUnknownPrefixException(
+            prefix: prefix, offset: _offset - 1);
     }
   }
 
@@ -315,7 +328,12 @@ class _Unpacker {
 
       while (i < length) {
         if (_offset >= _bytes.length) {
-          throw UnexpectedError('Unexpected end of input', offset: _offset);
+          throw GetPackerTruncatedInputException(
+            neededBytes: 1,
+            offset: _offset,
+            inputLength: _bytes.length,
+            context: 'map key prefix',
+          );
         }
         if (!_isStrPrefix(_bytes[_offset])) break;
 
@@ -407,8 +425,15 @@ class _Unpacker {
 
     if (type == ExtType.dateTime) {
       if (payloadLength != 9) {
-        throw UnexpectedError('Bad DateTime payload length: $payloadLength',
-            offset: _offset);
+        throw GetPackerInvalidExtPayloadException(
+          extType: type,
+          payloadLength: payloadLength,
+          offset: _offset,
+          reason: 'DateTime ext payload must be 9 bytes.',
+          details: {
+            'expectedLength': 9,
+          },
+        );
       }
       final isUtc = _bytes[_offset++] != 0;
       final micros = _readInt64();
@@ -417,8 +442,15 @@ class _Unpacker {
 
     if (type == ExtType.duration) {
       if (payloadLength != 8) {
-        throw UnexpectedError('Bad Duration payload length: $payloadLength',
-            offset: _offset);
+        throw GetPackerInvalidExtPayloadException(
+          extType: type,
+          payloadLength: payloadLength,
+          offset: _offset,
+          reason: 'Duration ext payload must be 8 bytes.',
+          details: {
+            'expectedLength': 8,
+          },
+        );
       }
       final micros = _readInt64();
       return Duration(microseconds: micros);
@@ -426,15 +458,29 @@ class _Unpacker {
 
     if (type == ExtType.bigInt) {
       if (payloadLength < 1) {
-        throw UnexpectedError('Bad BigInt payload length: $payloadLength',
-            offset: _offset);
+        throw GetPackerInvalidExtPayloadException(
+          extType: type,
+          payloadLength: payloadLength,
+          offset: _offset,
+          reason:
+              'BigInt ext payload must be at least 1 byte (sign + magnitude).',
+        );
       }
       final negative = _bytes[_offset++] == 0x01;
       final magLen = payloadLength - 1;
       if (magLen > _cfg.maxBigIntMagnitudeBytes) {
-        throw UnexpectedError(
-            'BigInt magnitude ${magLen}B exceeds cap ${_cfg.maxBigIntMagnitudeBytes}B',
-            offset: _offset);
+        throw GetPackerInvalidExtPayloadException(
+          extType: type,
+          payloadLength: payloadLength,
+          offset: _offset,
+          reason: 'BigInt magnitude exceeds maxBigIntMagnitudeBytes cap.',
+          details: {
+            'limitName': 'maxBigIntMagnitudeBytes',
+            'limit': _cfg.maxBigIntMagnitudeBytes,
+            'actual': magLen,
+            'unit': 'bytes',
+          },
+        );
       }
       final start = _offset;
       _offset += magLen;
@@ -444,14 +490,29 @@ class _Unpacker {
 
     if (type == ExtType.wideInt) {
       if (payloadLength < 1) {
-        throw UnexpectedError('Bad wideInt payload length: $payloadLength',
-            offset: _offset);
+        throw GetPackerInvalidExtPayloadException(
+          extType: type,
+          payloadLength: payloadLength,
+          offset: _offset,
+          reason:
+              'wideInt ext payload must be at least 1 byte (sign + magnitude).',
+        );
       }
       final negative = _bytes[_offset++] == 0x01;
       final magLen = payloadLength - 1;
       if (magLen > _cfg.maxBigIntMagnitudeBytes) {
-        throw UnexpectedError('wideInt magnitude too large: $magLen bytes',
-            offset: _offset);
+        throw GetPackerInvalidExtPayloadException(
+          extType: type,
+          payloadLength: payloadLength,
+          offset: _offset,
+          reason: 'wideInt magnitude exceeds maxBigIntMagnitudeBytes cap.',
+          details: {
+            'limitName': 'maxBigIntMagnitudeBytes',
+            'limit': _cfg.maxBigIntMagnitudeBytes,
+            'actual': magLen,
+            'unit': 'bytes',
+          },
+        );
       }
       _need(magLen);
       final magBytes =
@@ -470,15 +531,31 @@ class _Unpacker {
 
     if (type == ExtType.boolList) {
       if (payloadLength < 4) {
-        throw UnexpectedError('Bad boolList payload length', offset: _offset);
+        throw GetPackerInvalidExtPayloadException(
+          extType: type,
+          payloadLength: payloadLength,
+          offset: _offset,
+          reason: 'BoolList ext payload must include a 4-byte count header.',
+          details: {
+            'minLength': 4,
+          },
+        );
       }
       final count = _readUint32();
       final bytesLen = payloadLength - 4;
       final neededBytes = (count + 7) >> 3;
       if (bytesLen != neededBytes) {
-        throw UnexpectedError(
-            'Bad boolList payload length (count=$count needs $neededBytes bytes, got $bytesLen)',
-            offset: _offset);
+        throw GetPackerInvalidExtPayloadException(
+          extType: type,
+          payloadLength: payloadLength,
+          offset: _offset,
+          reason: 'BoolList packed length does not match count.',
+          details: {
+            'count': count,
+            'expectedPackedBytes': neededBytes,
+            'actualPackedBytes': bytesLen,
+          },
+        );
       }
       _need(bytesLen);
       final data = Uint8List.view(
@@ -488,31 +565,38 @@ class _Unpacker {
     }
 
     if (type == ExtType.int8List) {
-      return _readTypedListInt(1, true, payloadLength, endOfPayload);
+      return _readTypedListInt(type, 1, true, payloadLength, endOfPayload);
     }
     if (type == ExtType.uint16List || type == ExtType.int16List) {
       final signed = type == ExtType.int16List;
-      return _readTypedListInt(2, signed, payloadLength, endOfPayload);
+      return _readTypedListInt(type, 2, signed, payloadLength, endOfPayload);
     }
     if (type == ExtType.uint32List || type == ExtType.int32List) {
       final signed = type == ExtType.int32List;
-      return _readTypedListInt(4, signed, payloadLength, endOfPayload);
+      return _readTypedListInt(type, 4, signed, payloadLength, endOfPayload);
     }
     if (type == ExtType.uint64List || type == ExtType.int64List) {
       final signed = type == ExtType.int64List;
-      return _readTypedListInt(8, signed, payloadLength, endOfPayload);
+      return _readTypedListInt(type, 8, signed, payloadLength, endOfPayload);
     }
     if (type == ExtType.float32List) {
-      return _readTypedListFloat(4, payloadLength, endOfPayload);
+      return _readTypedListFloat(type, 4, payloadLength, endOfPayload);
     }
     if (type == ExtType.float64List) {
-      return _readTypedListFloat(8, payloadLength, endOfPayload);
+      return _readTypedListFloat(type, 8, payloadLength, endOfPayload);
     }
 
     if (type == ExtType.set) {
       if (payloadLength < 4) {
-        throw UnexpectedError('Bad Set payload length: $payloadLength',
-            offset: _offset);
+        throw GetPackerInvalidExtPayloadException(
+          extType: type,
+          payloadLength: payloadLength,
+          offset: _offset,
+          reason: 'Set ext payload must include a 4-byte count header.',
+          details: {
+            'minLength': 4,
+          },
+        );
       }
       final count = _readUint32();
       final result = <dynamic>{};
@@ -520,7 +604,13 @@ class _Unpacker {
         result.add(_decode(depth + 1));
       }
       if (_offset != endOfPayload) {
-        throw UnexpectedError('Trailing bytes in Set ext', offset: _offset);
+        throw GetPackerTrailingBytesException(
+          offset: _offset,
+          context: 'Set ext payload',
+          details: {
+            'extType': type,
+          },
+        );
       }
       return result;
     }
@@ -550,18 +640,36 @@ class _Unpacker {
     return ExtValue(type, data);
   }
 
-  dynamic _readTypedListInt(
-      int elemSize, bool signed, int payloadLength, int endOfPayload) {
+  dynamic _readTypedListInt(int extType, int elemSize, bool signed,
+      int payloadLength, int endOfPayload) {
     // Return a zero-copy TypedData view when aligned; otherwise copy.
     if (payloadLength < 4) {
-      throw UnexpectedError('Bad typed list payload', offset: _offset);
+      throw GetPackerInvalidExtPayloadException(
+        extType: extType,
+        payloadLength: payloadLength,
+        offset: _offset,
+        reason: 'Typed list ext payload must include a 4-byte count header.',
+        details: {
+          'minLength': 4,
+        },
+      );
     }
     final count = _readUint32();
     final byteLen = count * elemSize;
     final pad = payloadLength - 4 - byteLen;
     if (pad < 0 || pad > 7) {
-      throw UnexpectedError('Typed list payload length mismatch',
-          offset: _offset);
+      throw GetPackerInvalidExtPayloadException(
+        extType: extType,
+        payloadLength: payloadLength,
+        offset: _offset,
+        reason: 'Typed list payload length mismatch.',
+        details: {
+          'count': count,
+          'elemSize': elemSize,
+          'byteLen': byteLen,
+          'pad': pad,
+        },
+      );
     }
     if (pad != 0) {
       _need(pad);
@@ -641,17 +749,35 @@ class _Unpacker {
   }
 
   dynamic _readTypedListFloat(
-      int elemSize, int payloadLength, int endOfPayload) {
+      int extType, int elemSize, int payloadLength, int endOfPayload) {
     // Same deal as ints, views when aligned, copies when not
     if (payloadLength < 4) {
-      throw UnexpectedError('Bad typed list payload', offset: _offset);
+      throw GetPackerInvalidExtPayloadException(
+        extType: extType,
+        payloadLength: payloadLength,
+        offset: _offset,
+        reason: 'Typed list ext payload must include a 4-byte count header.',
+        details: {
+          'minLength': 4,
+        },
+      );
     }
     final count = _readUint32();
     final byteLen = count * elemSize;
     final pad = payloadLength - 4 - byteLen;
     if (pad < 0 || pad > 7) {
-      throw UnexpectedError('Typed list payload length mismatch',
-          offset: _offset);
+      throw GetPackerInvalidExtPayloadException(
+        extType: extType,
+        payloadLength: payloadLength,
+        offset: _offset,
+        reason: 'Typed list payload length mismatch.',
+        details: {
+          'count': count,
+          'elemSize': elemSize,
+          'byteLen': byteLen,
+          'pad': pad,
+        },
+      );
     }
     if (pad != 0) {
       _need(pad);
@@ -688,7 +814,12 @@ class _Unpacker {
 
   void _skip(int depth) {
     if (_offset >= _bytes.length) {
-      throw UnexpectedError('Unexpected end of input', offset: _offset);
+      throw GetPackerTruncatedInputException(
+        neededBytes: 1,
+        offset: _offset,
+        inputLength: _bytes.length,
+        context: 'value prefix',
+      );
     }
     final int prefix = _bytes[_offset++];
 
@@ -839,8 +970,8 @@ class _Unpacker {
         return;
 
       default:
-        throw UnsupportedError(
-            'Unknown prefix for skip: 0x${prefix.toRadixString(16)} at $_offset');
+        throw GetPackerUnknownPrefixException(
+            prefix: prefix, offset: _offset - 1);
     }
   }
 }

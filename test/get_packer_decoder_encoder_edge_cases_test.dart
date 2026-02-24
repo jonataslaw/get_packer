@@ -120,21 +120,21 @@ void main() {
         () => GetPacker.unpack<dynamic>(
           Uint8List.fromList([0xC7, 0x01, ExtType.dateTime, 0x00]),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerInvalidExtPayloadException>()),
       );
 
       expect(
         () => GetPacker.unpack<dynamic>(
           Uint8List.fromList([0xC7, 0x01, ExtType.duration, 0x00]),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerInvalidExtPayloadException>()),
       );
 
       expect(
         () => GetPacker.unpack<dynamic>(
           Uint8List.fromList([0xC7, 0x03, ExtType.set, 0x00, 0x00, 0x00]),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerInvalidExtPayloadException>()),
       );
     });
 
@@ -152,7 +152,7 @@ void main() {
 
       expect(
         () => GetPacker.unpack<dynamic>(bytes),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerTrailingBytesException>()),
       );
     });
 

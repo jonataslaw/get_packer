@@ -117,7 +117,7 @@ void main() {
         const cfg = GetPackerConfig(maxStringUtf8Bytes: 3);
         expect(
           () => GetPacker.pack('abcd', config: cfg),
-          throwsA(isA<BigDataException>()),
+          throwsA(isA<GetPackerLimitExceededException>()),
         );
       });
 
@@ -127,7 +127,7 @@ void main() {
         const cfg = GetPackerConfig(maxStringUtf8Bytes: 3);
         expect(
           () => GetPacker.pack('🌍', config: cfg),
-          throwsA(isA<BigDataException>()),
+          throwsA(isA<GetPackerLimitExceededException>()),
         );
       });
 
@@ -191,7 +191,7 @@ void main() {
         final data = Uint8List(4);
         expect(
           () => GetPacker.pack(data, config: cfg),
-          throwsA(isA<BigDataException>()),
+          throwsA(isA<GetPackerLimitExceededException>()),
         );
       });
     });
@@ -254,7 +254,7 @@ void main() {
         const cfg = GetPackerConfig(maxArrayLength: 16);
         expect(
           () => GetPacker.pack(largeIterable, config: cfg),
-          throwsA(isA<BigDataException>()),
+          throwsA(isA<GetPackerLimitExceededException>()),
         );
       });
     });
@@ -316,7 +316,7 @@ void main() {
         const cfg = GetPackerConfig(maxMapLength: 16);
         expect(
           () => GetPacker.pack(LargeMap(), config: cfg),
-          throwsA(isA<BigDataException>()),
+          throwsA(isA<GetPackerLimitExceededException>()),
         );
       });
 
@@ -401,7 +401,8 @@ void main() {
         final v = BigInt.from(1e+308);
         final value = v.pow(513); //65611
 
-        expect(() => GetPacker.pack(value), throwsA(isA<BigDataException>()));
+        expect(() => GetPacker.pack(value),
+            throwsA(isA<GetPackerLimitExceededException>()));
       });
     });
 
@@ -556,15 +557,66 @@ void main() {
     expect(model, equals(fetchedModel)); // Due to equality operator
   });
 
+  test('typed unpack with fromJson returns model', () {
+    final model = ModelSample(name: 'John Doe', age: 42);
+    final packed = GetPacker.pack(model);
+
+    final unpacked = GetPacker.unpack<ModelSample>(
+      packed,
+      fromJson: ModelSample.fromJson,
+    );
+
+    expect(unpacked, equals(model));
+  });
+
+  test('typed unpack works with bytes produced by model.pack()', () {
+    final model = ModelSample(name: 'John Doe', age: 42);
+    final packed = model.pack();
+
+    final unpacked = GetPacker.unpack(
+      packed,
+      fromJson: ModelSample.fromJson,
+    );
+
+    expect(unpacked, equals(model));
+  });
+
+  test('stateful decode accepts fromJson', () {
+    final model = ModelSample(name: 'John Doe', age: 42);
+    final packer = GetPacker();
+    final packed = packer.encode(model);
+
+    final unpacked = packer.decode<ModelSample>(
+      packed,
+      fromJson: ModelSample.fromJson,
+    );
+
+    expect(unpacked, equals(model));
+  });
+
+  test('typed unpack with fromJson throws when payload is not a map', () {
+    final packed = GetPacker.pack(42);
+
+    expect(
+      () => GetPacker.unpack<ModelSample>(
+        packed,
+        fromJson: ModelSample.fromJson,
+      ),
+      throwsA(isA<GetPackerTypeMismatchException>()),
+    );
+  });
+
   test('try unpack with a unexpect entry', () {
     final value = Uint8List.fromList([]);
-    expect(() => GetPacker.unpack(value), throwsA(isA<UnexpectedError>()));
+    expect(() => GetPacker.unpack(value),
+        throwsA(isA<GetPackerTruncatedInputException>()));
   });
 
   test('pack and unpack Model with non-packed class', () {
     final model = ModelNotPacked(name: 'John Doe', age: 42);
 
-    expect(() => GetPacker.pack(model), throwsA(isA<UnsupportedError>()));
+    expect(() => GetPacker.pack(model),
+        throwsA(isA<GetPackerUnsupportedTypeException>()));
   });
 
   test('try unpack unexpect binary', () {
@@ -575,11 +627,12 @@ void main() {
     // final data5 = Uint8List.fromList([0xCA]);
     final list = [data, data2, data3, data4];
     for (final item in list) {
-      expect(() => GetPacker.unpack(item), throwsA(isA<UnexpectedError>()));
+      expect(() => GetPacker.unpack(item),
+          throwsA(isA<GetPackerTruncatedInputException>()));
     }
   });
 
-  test('stringfy UnexpectedError', () {
+  test('stringifies decode error', () {
     final data = Uint8List.fromList([0xD9]);
 
     try {
@@ -591,18 +644,26 @@ void main() {
     }
   });
 
-  test('stringfy BigDataException', () {
-    final data = "foo";
-    BigDataException e = BigDataException(data);
-
-    expect(e.toString(), contains('Data foo is too big to process'));
+  test('stringifies limit errors with code and details', () {
+    final e = GetPackerLimitExceededException(
+      limitName: 'maxStringUtf8Bytes',
+      limit: 3,
+      actual: 4,
+      unit: 'bytes',
+      valueType: 'String',
+      message: 'String exceeds maxStringUtf8Bytes cap.',
+    );
+    final text = e.toString();
+    expect(text, contains('encode.limit_exceeded'));
+    expect(text, contains('maxStringUtf8Bytes'));
   });
 
   group('GetPacker Decode Error Cases', () {
     test('throws UnexpectedError when input ends unexpectedly in _readInt', () {
       final bytes = Uint8List.fromList(
           [0xD0]); // D0 expects 1 byte for int8, but none provided
-      expect(() => GetPacker.unpack(bytes), throwsA(isA<UnexpectedError>()));
+      expect(() => GetPacker.unpack(bytes),
+          throwsA(isA<GetPackerTruncatedInputException>()));
     });
 
     test('throws UnexpectedError when input ends unexpectedly in _readString',
@@ -611,7 +672,8 @@ void main() {
         0xD9,
         0x02
       ]); // D9 expects 2 bytes for string length but none provided
-      expect(() => GetPacker.unpack(bytes), throwsA(isA<UnexpectedError>()));
+      expect(() => GetPacker.unpack(bytes),
+          throwsA(isA<GetPackerTruncatedInputException>()));
     });
 
     test('throws UnexpectedError when input ends unexpectedly in _readBinary',
@@ -620,7 +682,8 @@ void main() {
         0xC4,
         0x02
       ]); // C4 expects 2 bytes for binary length but none provided
-      expect(() => GetPacker.unpack(bytes), throwsA(isA<UnexpectedError>()));
+      expect(() => GetPacker.unpack(bytes),
+          throwsA(isA<GetPackerTruncatedInputException>()));
     });
 
     test('throws UnexpectedError when input ends unexpectedly in _readExt', () {
@@ -628,24 +691,26 @@ void main() {
         0xC7,
         0xFF,
       ]);
-      expect(() => GetPacker.unpack(bytes2), throwsA(isA<UnexpectedError>()));
+      expect(() => GetPacker.unpack(bytes2),
+          throwsA(isA<GetPackerTruncatedInputException>()));
     });
 
     test('throws UnexpectedError when input ends unexpectedly in _readDouble',
         () {
       final bytes = Uint8List.fromList(
           [0xCB]); // CB expects 8 bytes for float64, but none provided
-      expect(() => GetPacker.unpack(bytes), throwsA(isA<UnexpectedError>()));
+      expect(() => GetPacker.unpack(bytes),
+          throwsA(isA<GetPackerTruncatedInputException>()));
     });
 
     test('throws UnsupportedError for unknown prefix', () {
       // 0xC1 is reserved/invalid in MessagePack
       expect(() => GetPacker.unpack(Uint8List.fromList([0xC1])),
-          throwsA(isA<UnsupportedError>()));
+          throwsA(isA<GetPackerUnknownPrefixException>()));
 
       // 0xD4 is FixExt1, valid prefix, but truncated payload => decode error
       expect(() => GetPacker.unpack(Uint8List.fromList([0xD4])),
-          throwsA(isA<UnexpectedError>()));
+          throwsA(isA<GetPackerTruncatedInputException>()));
     });
 
     // test('throws UnexpectedError when input ends unexpectedly in _readFloat',
@@ -659,14 +724,16 @@ void main() {
       // Simulate invalid ext data for BigInt (type 0x01) with a length < 1
       final data =
           Uint8List.fromList([0xC7, 0x00, 0x01]); // ext 8 with 0 length
-      expect(() => GetPacker.unpack(data), throwsA(isA<UnexpectedError>()));
+        expect(() => GetPacker.unpack(data),
+          throwsA(isA<GetPackerInvalidExtPayloadException>()));
     });
 
     test('throws UnsupportedError for invalid DateTime ext length', () {
       // Simulate ext data for DateTime (type 0xFF) with invalid length
       final data = Uint8List.fromList(
           [0xC7, 0x05, 0xFF, 0, 0, 0, 0]); // ext 8 with invalid length (5)
-      expect(() => GetPacker.unpack(data), throwsA(isA<UnexpectedError>()));
+      expect(() => GetPacker.unpack(data),
+          throwsA(isA<GetPackerTruncatedInputException>()));
     });
   });
 
@@ -772,7 +839,7 @@ class ModelSample with PackedModel {
     };
   }
 
-  factory ModelSample.fromJson(Map<dynamic, dynamic> map) {
+  factory ModelSample.fromJson(Map<String, dynamic> map) {
     return ModelSample(
       name: map['name'] ?? '',
       age: map['age']?.toInt() ?? 0,

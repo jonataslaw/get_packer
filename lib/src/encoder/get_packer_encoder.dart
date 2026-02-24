@@ -2,8 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../enums/int_interop_mode.dart';
-import '../errors/big_data_exception.dart';
-import '../errors/unexpected_error_exception.dart';
+import '../errors/get_packer_exceptions.dart';
 import '../internal/numeric_runtime.dart';
 import '../internal/packed_bool_list.dart';
 import '../internal/web_wide_int_encoding.dart';
@@ -105,7 +104,11 @@ class _Packer {
 
   void _encode(dynamic value, int depth) {
     if (depth > _cfg.maxDepth) {
-      throw UnexpectedError('Max depth exceeded (${_cfg.maxDepth})');
+      throw GetPackerMaxDepthExceededException(
+        operation: 'encode',
+        maxDepth: _cfg.maxDepth,
+        depth: depth,
+      );
     }
 
     if (value == null) {
@@ -247,7 +250,9 @@ class _Packer {
       return;
     }
 
-    throw UnsupportedError('Unsupported type: ${value.runtimeType}');
+    throw GetPackerUnsupportedTypeException(
+      valueType: value.runtimeType.toString(),
+    );
   }
 
   void _encodeInt(int v) {
@@ -365,7 +370,14 @@ class _Packer {
     final int n = s.length;
     final int cap = _capU32(_cfg.maxStringUtf8Bytes);
     if (n > cap) {
-      throw BigDataException(s, reason: 'string length $n exceeds cap $cap B');
+      throw GetPackerLimitExceededException(
+        limitName: 'maxStringUtf8Bytes',
+        limit: cap,
+        actual: n,
+        unit: 'bytes',
+        valueType: 'String',
+        message: 'String exceeds maxStringUtf8Bytes cap.',
+      );
     }
 
     final int start = _offset;
@@ -409,7 +421,14 @@ class _Packer {
     final m = enc.length;
     final int cap = _capU32(_cfg.maxStringUtf8Bytes);
     if (m > cap) {
-      throw BigDataException(s, reason: 'UTF-8 length $m exceeds cap $cap B');
+      throw GetPackerLimitExceededException(
+        limitName: 'maxStringUtf8Bytes',
+        limit: cap,
+        actual: m,
+        unit: 'bytes',
+        valueType: 'String',
+        message: 'String UTF-8 bytes exceed maxStringUtf8Bytes cap.',
+      );
     }
     if (m <= 31) {
       _ensureBuffer(1 + m);
@@ -437,8 +456,14 @@ class _Packer {
     final length = data.length;
     final int cap = _capU32(_cfg.maxBinaryBytes);
     if (length > cap) {
-      throw BigDataException(data,
-          reason: 'binary length $length exceeds cap $cap B');
+      throw GetPackerLimitExceededException(
+        limitName: 'maxBinaryBytes',
+        limit: cap,
+        actual: length,
+        unit: 'bytes',
+        valueType: 'Uint8List',
+        message: 'Binary exceeds maxBinaryBytes cap.',
+      );
     }
     if (length <= 0xFF) {
       _ensureBuffer(2 + length);
@@ -463,8 +488,14 @@ class _Packer {
     final length = list.length;
     final int cap = _capU32(_cfg.maxArrayLength);
     if (length > cap) {
-      throw BigDataException(list,
-          reason: 'array length $length exceeds cap $cap');
+      throw GetPackerLimitExceededException(
+        limitName: 'maxArrayLength',
+        limit: cap,
+        actual: length,
+        unit: 'items',
+        valueType: 'List<int>',
+        message: 'Array exceeds maxArrayLength cap.',
+      );
     }
     if (length <= 0xF) {
       _ensureBuffer(1);
@@ -580,8 +611,14 @@ class _Packer {
 
     final int cap = _capU32(_cfg.maxBinaryBytes);
     if (n > cap) {
-      throw BigDataException(list,
-          reason: 'binary length $n exceeds cap $cap B');
+      throw GetPackerLimitExceededException(
+        limitName: 'maxBinaryBytes',
+        limit: cap,
+        actual: n,
+        unit: 'bytes',
+        valueType: 'List<int>',
+        message: 'Encoded binary exceeds maxBinaryBytes cap.',
+      );
     }
 
     if (n <= 0xFF) {
@@ -947,8 +984,14 @@ class _Packer {
 
       final length = it.length;
       if (length > cap) {
-        throw BigDataException(it,
-            reason: 'array length $length exceeds cap $cap');
+        throw GetPackerLimitExceededException(
+          limitName: 'maxArrayLength',
+          limit: cap,
+          actual: length,
+          unit: 'items',
+          valueType: it.runtimeType.toString(),
+          message: 'Array exceeds maxArrayLength cap.',
+        );
       }
       if (length <= 0xF) {
         _ensureBuffer(1);
@@ -974,8 +1017,14 @@ class _Packer {
     for (final _ in it) {
       length++;
       if (length > cap) {
-        throw BigDataException(it,
-            reason: 'array length $length exceeds cap $cap');
+        throw GetPackerLimitExceededException(
+          limitName: 'maxArrayLength',
+          limit: cap,
+          actual: length,
+          unit: 'items',
+          valueType: it.runtimeType.toString(),
+          message: 'Array exceeds maxArrayLength cap.',
+        );
       }
     }
     if (length <= 0xF) {
@@ -1001,7 +1050,14 @@ class _Packer {
     final count = set.length;
     final int cap = _capU32(_cfg.maxArrayLength);
     if (count > cap) {
-      throw BigDataException(set, reason: 'set length $count exceeds cap $cap');
+      throw GetPackerLimitExceededException(
+        limitName: 'maxArrayLength',
+        limit: cap,
+        actual: count,
+        unit: 'items',
+        valueType: set.runtimeType.toString(),
+        message: 'Set exceeds maxArrayLength cap.',
+      );
     }
     _ensureBuffer(1 + 4 + 1 + 4);
     _buffer[_offset++] = 0xC9;
@@ -1024,8 +1080,14 @@ class _Packer {
     final length = map.length;
     final int cap = _capU32(_cfg.maxMapLength);
     if (length > cap) {
-      throw BigDataException(map,
-          reason: 'map length $length exceeds cap $cap');
+      throw GetPackerLimitExceededException(
+        limitName: 'maxMapLength',
+        limit: cap,
+        actual: length,
+        unit: 'entries',
+        valueType: map.runtimeType.toString(),
+        message: 'Map exceeds maxMapLength cap.',
+      );
     }
 
     if (length <= 0xF) {
@@ -1116,8 +1178,19 @@ class _Packer {
     final int extCap = _capU32(_cfg.maxExtPayloadBytes);
     final int cap = uriCap < extCap ? uriCap : extCap;
     if (m > cap) {
-      throw BigDataException(value,
-          reason: 'URI UTF-8 length $m exceeds cap $cap B');
+      throw GetPackerLimitExceededException(
+        limitName: 'maxUriUtf8Bytes',
+        limit: cap,
+        actual: m,
+        unit: 'bytes',
+        valueType: 'Uri',
+        message: 'URI UTF-8 bytes exceed configured caps.',
+        details: {
+          'maxUriUtf8Bytes': uriCap,
+          'maxExtPayloadBytes': extCap,
+          'effectiveCap': cap,
+        },
+      );
     }
 
     if (m <= 0xFF) {
@@ -1160,16 +1233,27 @@ class _Packer {
     final BigInt mag = neg ? -value : value;
     final int magBytes = mag == BigInt.zero ? 0 : (mag.bitLength + 7) >> 3;
     if (magBytes > _cfg.maxBigIntMagnitudeBytes) {
-      throw BigDataException(originalValue,
-          reason:
-              'BigInt magnitude ${magBytes}B exceeds cap ${_cfg.maxBigIntMagnitudeBytes}B');
+      throw GetPackerLimitExceededException(
+        limitName: 'maxBigIntMagnitudeBytes',
+        limit: _cfg.maxBigIntMagnitudeBytes,
+        actual: magBytes,
+        unit: 'bytes',
+        valueType: originalValue.runtimeType.toString(),
+        message: 'BigInt magnitude exceeds maxBigIntMagnitudeBytes cap.',
+      );
     }
     final payloadLength = 1 + magBytes;
 
     final int cap = _capU32(_cfg.maxExtPayloadBytes);
     if (payloadLength > cap) {
-      throw BigDataException(originalValue,
-          reason: 'ext payload length $payloadLength exceeds cap $cap B');
+      throw GetPackerLimitExceededException(
+        limitName: 'maxExtPayloadBytes',
+        limit: cap,
+        actual: payloadLength,
+        unit: 'bytes',
+        valueType: originalValue.runtimeType.toString(),
+        message: 'Ext payload exceeds maxExtPayloadBytes cap.',
+      );
     }
 
     _writeExtHeader(extType, payloadLength);

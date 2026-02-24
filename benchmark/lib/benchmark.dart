@@ -783,3 +783,117 @@ Float32List _f32(Random rnd, int n) {
   }
   return out;
 }
+
+// Output:
+
+// get_packer % ./benchmark/lib/benchmark.exe                      
+// --- get_packer ---
+// Dart VM: AOT/Release  |  Web: false
+
+// ==================================================
+//   Scenario: generateSimple (plain collections)
+// ==================================================
+
+//   Size: small  ~405 B (raw estimate)
+//   Payload sizes:
+//     get_packer   363 B
+//     msgpack      374 B
+//     json         443 B
+//   Encode throughput (MB/s) [median of 5 runs, 5000 iters]:
+//     get_packer      288.8 MB/s  | 834306.7 op/s  | time 5.99 ms  | chk 245984009169027968
+//     msgpack          73.0 MB/s  | 204683.2 op/s  | time 0.024 s  | chk 6681848883618387712
+//     json             46.4 MB/s  | 109728.5 op/s  | time 0.046 s  | chk 96925453903694720
+//   Decode throughput (MB/s) [median of 5 runs, 5000 iters]:
+//     get_packer      186.7 MB/s  | 539374.3 op/s  | time 9.27 ms  | chk 8316934812006788608
+//     msgpack          79.9 MB/s  | 224014.3 op/s  | time 0.022 s  | chk 8316934812006788608
+//     json             58.0 MB/s  | 137249.5 op/s  | time 0.036 s  | chk 8316934812006788608
+
+//   Size: medium  ~24.87 KB (raw estimate)
+//   Payload sizes:
+//     get_packer   10.88 KB
+//     msgpack      13.31 KB
+//     json         20.27 KB
+//   Encode throughput (MB/s) [median of 5 runs, 300 iters]:
+//     get_packer      517.2 MB/s  | 48661.8 op/s  | time 6.17 ms  | chk 6894022030939540992
+//     msgpack          77.5 MB/s  | 5961.0 op/s  | time 0.050 s  | chk 3064194898660956416
+//     json             38.8 MB/s  | 1960.7 op/s  | time 0.153 s  | chk 9135096911988638784
+//   Decode throughput (MB/s) [median of 5 runs, 300 iters]:
+//     get_packer     1126.2 MB/s  | 105969.6 op/s  | time 2.83 ms  | chk 179010962653482240
+//     msgpack          81.5 MB/s  | 6272.6 op/s  | time 0.048 s  | chk 179010962653482240
+//     json             73.0 MB/s  | 3686.9 op/s  | time 0.081 s  | chk 179010962653482240
+
+//   Size: large  ~1.62 MB (raw estimate)
+//   Payload sizes:
+//     get_packer   824.82 KB
+//     msgpack      1017.32 KB
+//     json         2.08 MB
+//   Encode throughput (MB/s) [median of 5 runs, 15 iters]:
+//     get_packer      801.4 MB/s  | 995.0 op/s  | time 0.015 s  | chk 1487418550132102092
+//     msgpack          85.9 MB/s  | 86.5 op/s  | time 0.173 s  | chk 7255349445296314758
+//     json             49.8 MB/s  | 23.9 op/s  | time 0.627 s  | chk 3910833765906588239
+//   Decode throughput (MB/s) [median of 5 runs, 15 iters]:
+//     get_packer     9265.6 MB/s  | 11503.1 op/s  | time 1.30 ms  | chk 8156201999704232044
+//     msgpack          88.7 MB/s  | 89.3 op/s  | time 0.168 s  | chk 8156201999704232044
+//     json             82.2 MB/s  | 39.5 op/s  | time 0.380 s  | chk 8156201999704232044
+
+// ==================================================
+//   Scenario: generate (typed‑data heavy)
+// ==================================================
+
+//   Size: small  ~128.25 KB (raw estimate)
+//   Payload sizes:
+//     get_packer   128.33 KB
+//     msgpack      216.27 KB
+//     json         234.43 KB
+//   Encode throughput (MB/s) [median of 5 runs, 300 iters]:
+//     get_packer    35237.2 MB/s  | 281162.1 op/s  | time 1.07 ms  | chk 744326540286702656
+//     msgpack          41.6 MB/s  | 196.9 op/s  | time 1.524 s  | chk 4395738507448887168
+//     json             49.6 MB/s  | 216.5 op/s  | time 1.386 s  | chk 6957618698687831104
+//   Decode throughput (MB/s) [median of 5 runs, 300 iters]:
+//     get_packer    65502.0 MB/s  | 522648.1 op/s  | time 0.57 ms  | chk 6008059258904122816
+//     msgpack          47.0 MB/s  | 222.7 op/s  | time 1.347 s  | chk 6008059258904122816
+//     json            106.8 MB/s  | 466.6 op/s  | time 0.643 s  | chk 6008059258904122816
+
+//   Size: medium  ~1.56 MB (raw estimate)
+//   Payload sizes:
+//     get_packer   1.56 MB
+//     msgpack      2.58 MB
+//     json         2.60 MB
+//   Encode throughput (MB/s) [median of 5 runs, 60 iters]:
+//     get_packer    39221.3 MB/s  | 25094.1 op/s  | time 2.39 ms  | chk 1850526107994211264
+//     msgpack          35.3 MB/s  | 13.7 op/s  | time 4.386 s  | chk 4748515977425934016
+//     json             51.4 MB/s  | 19.8 op/s  | time 3.031 s  | chk 4723634864618521024
+//   Decode throughput (MB/s) [median of 5 runs, 60 iters]:
+//     get_packer   775026.5 MB/s  | 495867.8 op/s  | time 0.12 ms  | chk 3378682373878294272
+//     msgpack          40.1 MB/s  | 15.6 op/s  | time 3.858 s  | chk 3378682373878294272
+//     json             97.9 MB/s  | 37.7 op/s  | time 1.590 s  | chk 3378682373878294272
+
+//   Size: large  ~13.35 MB (raw estimate)
+//   Payload sizes:
+//     get_packer   13.35 MB
+//     msgpack      21.45 MB
+//     json         24.74 MB
+//   Encode throughput (MB/s) [median of 5 runs, 8 iters]:
+//     get_packer    40723.5 MB/s  | 3049.9 op/s  | time 2.62 ms  | chk 4042892288702139776
+//     msgpack          35.2 MB/s  | 1.6 op/s  | time 4.868 s  | chk 1331604074712201088
+//     json             53.6 MB/s  | 2.2 op/s  | time 3.692 s  | chk 6787830949125728512
+//   Decode throughput (MB/s) [median of 5 runs, 8 iters]:
+//     get_packer   5621992.8 MB/s  | 421052.6 op/s  | time 0.02 ms  | chk 3197207628217207296
+//     msgpack          40.1 MB/s  | 1.9 op/s  | time 4.278 s  | chk 3197207628217207296
+//     json            105.8 MB/s  | 4.3 op/s  | time 1.870 s  | chk 3197207628217207296
+
+
+
+// > **What does 5.6 TB/s decode actually mean?**
+// >
+// > When your payload contains typed arrays (`Uint8List`, `Float32List`, `Int16List`, etc.), get_packer encodes them in host-endian contiguous layout — the same format they already occupy in memory. On decode, instead of allocating and copying, the decoder hands you a **typed view directly into the buffer**. There is almost nothing to do, which is why the numbers look absurd.
+// >
+// > This isn't possible with MessagePack by design: its spec mandates big-endian encoding, which means every numeric array must be byte-swapped on decode — zero-copy is structurally off the table. JSON goes even further in the other direction: it has no concept of typed arrays at all, so encoding flattens them into text and decoding reconstructs them element by element.
+// >
+// > get_packer's zero-copy path gives you the same philosophy Rust teaches: **use it immediately, copy it if you want**. The choice is yours and the cost is explicit.
+// >
+// > But if you think those numbers only hold at get_packer's strongest point — the benchmark also includes a plain-collection scenario, where typed arrays are stripped out entirely and all three libraries are doing the exact same job. The results there are still **3–4× faster than MessagePack, on the enemy's turf**.
+// >
+// > That said, there is a real tradeoff worth naming: get_packer is built to encode and decode Dart natively — DateTime, Duration, BigInt, typed lists — all first-class, no boilerplate. If you live in Dart, it's plug-and-play.
+// >
+// > If you're in another language, your options are roughly what you'd expect: a native port (which I'd love to see happen, though cross-platform parity is hard), running a Dart binary as a service, or simply using your language's native JSON or MessagePack package for the cross-language layer and get_packer internally where performance actually matters. That last one isn't a compromise — it's how most real systems work anyway.

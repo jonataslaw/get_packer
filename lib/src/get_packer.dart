@@ -2,7 +2,10 @@ import 'dart:typed_data';
 
 import 'decoder/get_packer_decoder.dart';
 import 'encoder/get_packer_encoder.dart';
+import 'errors/get_packer_exceptions.dart';
 import 'objects/get_packer_config.dart';
+
+typedef ModelFromJson<T> = T Function(Map<String, dynamic> json);
 
 class GetPacker {
   /// Convenience wrapper around the encoder/decoder.
@@ -21,10 +24,12 @@ class GetPacker {
   ///
   /// On the web, wide integers may come back as `BigInt` depending on config
   static T unpack<T>(Uint8List bytes,
-      {GetPackerConfig config = const GetPackerConfig()}) {
+      {GetPackerConfig config = const GetPackerConfig(),
+      ModelFromJson<T>? fromJson}) {
     final decoder = GetPackerDecoder(config: config);
     decoder.reset(bytes);
-    return decoder.unpack<T>();
+    final value = decoder.unpack<dynamic>();
+    return _decodeAs<T>(value, fromJson: fromJson);
   }
 
   /// Stateful packer
@@ -46,10 +51,23 @@ class GetPacker {
   }
 
   /// Decode using the cached decoder
-  T decode<T>(
-    Uint8List bytes,
-  ) {
+  T decode<T>(Uint8List bytes, {ModelFromJson<T>? fromJson}) {
     _decoder.reset(bytes);
-    return _decoder.unpack<T>();
+    final value = _decoder.unpack<dynamic>();
+    return _decodeAs<T>(value, fromJson: fromJson);
+  }
+
+  static T _decodeAs<T>(dynamic value, {ModelFromJson<T>? fromJson}) {
+    if (fromJson == null) {
+      return value as T;
+    }
+    if (value is! Map) {
+      throw GetPackerTypeMismatchException(
+        operation: 'decode',
+        expected: 'Map',
+        actual: value.runtimeType.toString(),
+      );
+    }
+    return fromJson(Map<String, dynamic>.from(value));
   }
 }

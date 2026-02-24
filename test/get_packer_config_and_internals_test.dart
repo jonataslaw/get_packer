@@ -93,15 +93,17 @@ void main() {
       expect(text, contains('3'));
     });
 
-    test('UnexpectedError toString covers null and non-null offset', () {
-      expect(
-        UnexpectedError('boom').toString(),
-        equals('Unexpected error: boom'),
+    test('GetPackerException toString includes code and context', () {
+      final e = GetPackerTruncatedInputException(
+        neededBytes: 1,
+        offset: 10,
+        inputLength: 10,
+        context: 'value prefix',
       );
-      expect(
-        UnexpectedError('boom', offset: 10).toString(),
-        equals('Unexpected error at byte 10: boom'),
-      );
+      final text = e.toString();
+      expect(text, contains('decode.truncated_input'));
+      expect(text, contains('offset=10'));
+      expect(text, contains('Unexpected end of input'));
     });
   });
 
@@ -148,7 +150,7 @@ void main() {
           nested,
           config: const GetPackerConfig(maxDepth: 1),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerMaxDepthExceededException>()),
       );
 
       final packed = GetPacker.pack(nested);
@@ -157,7 +159,7 @@ void main() {
           packed,
           config: const GetPackerConfig(maxDepth: 1),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerMaxDepthExceededException>()),
       );
     });
 
@@ -206,19 +208,19 @@ void main() {
       expect(
         () => GetPacker.pack('abcd',
             config: const GetPackerConfig(maxStringUtf8Bytes: 3)),
-        throwsA(isA<BigDataException>()),
+        throwsA(isA<GetPackerLimitExceededException>()),
       );
 
       expect(
         () => GetPacker.pack('🌍',
             config: const GetPackerConfig(maxStringUtf8Bytes: 3)),
-        throwsA(isA<BigDataException>()),
+        throwsA(isA<GetPackerLimitExceededException>()),
       );
 
       expect(
         () => GetPacker.pack(Uint8List(4),
             config: const GetPackerConfig(maxBinaryBytes: 3)),
-        throwsA(isA<BigDataException>()),
+        throwsA(isA<GetPackerLimitExceededException>()),
       );
 
       // List<int> byte path uses maxBinaryBytes.
@@ -227,7 +229,7 @@ void main() {
           <int>[0, 1, 2, 3],
           config: const GetPackerConfig(maxBinaryBytes: 3),
         ),
-        throwsA(isA<BigDataException>()),
+        throwsA(isA<GetPackerLimitExceededException>()),
       );
 
       // Force List<int> to use array encoding so maxArrayLength applies there.
@@ -239,7 +241,7 @@ void main() {
             numericListPromotionMinLength: 100,
           ),
         ),
-        throwsA(isA<BigDataException>()),
+        throwsA(isA<GetPackerLimitExceededException>()),
       );
 
       expect(
@@ -247,7 +249,7 @@ void main() {
           <dynamic>[1, 2],
           config: const GetPackerConfig(maxArrayLength: 1),
         ),
-        throwsA(isA<BigDataException>()),
+        throwsA(isA<GetPackerLimitExceededException>()),
       );
 
       expect(
@@ -255,7 +257,7 @@ void main() {
           <String, int>{'a': 1, 'b': 2},
           config: const GetPackerConfig(maxMapLength: 1),
         ),
-        throwsA(isA<BigDataException>()),
+        throwsA(isA<GetPackerLimitExceededException>()),
       );
 
       expect(
@@ -263,7 +265,7 @@ void main() {
           <int>{1, 2},
           config: const GetPackerConfig(maxArrayLength: 1),
         ),
-        throwsA(isA<BigDataException>()),
+        throwsA(isA<GetPackerLimitExceededException>()),
       );
 
       expect(
@@ -271,19 +273,19 @@ void main() {
           Uri.parse('https://example.com'),
           config: const GetPackerConfig(maxUriUtf8Bytes: 1),
         ),
-        throwsA(isA<BigDataException>()),
+        throwsA(isA<GetPackerLimitExceededException>()),
       );
 
       expect(
         () => GetPacker.pack(BigInt.one,
             config: const GetPackerConfig(maxExtPayloadBytes: 1)),
-        throwsA(isA<BigDataException>()),
+        throwsA(isA<GetPackerLimitExceededException>()),
       );
 
       expect(
         () => GetPacker.pack(BigInt.one << 80,
             config: const GetPackerConfig(maxExtPayloadBytes: 1)),
-        throwsA(isA<BigDataException>()),
+        throwsA(isA<GetPackerLimitExceededException>()),
       );
     });
   });
@@ -672,19 +674,19 @@ void main() {
 
       expect(
         () => GetPacker.unpack<dynamic>(Uint8List.fromList([0xD9, 0x02, 0x61])),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerTruncatedInputException>()),
       );
 
       decoder.reset(Uint8List.fromList([0xC1]));
       expect(
         () => decoder.skipValue(),
-        throwsUnsupportedError,
+        throwsA(isA<GetPackerUnknownPrefixException>()),
       );
 
       decoder.reset(Uint8List(0));
       expect(
         () => decoder.skipValue(),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerTruncatedInputException>()),
       );
     });
 
@@ -827,7 +829,7 @@ void main() {
         () => GetPacker.unpack<dynamic>(
           Uint8List.fromList([0xC7, 0x03, ExtType.float32List, 0, 0, 0]),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerInvalidExtPayloadException>()),
       );
 
       expect(
@@ -843,7 +845,7 @@ void main() {
             ...List<int>.filled(16, 0),
           ]),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerInvalidExtPayloadException>()),
       );
     });
 
@@ -957,7 +959,7 @@ void main() {
       ]);
       expect(
         () => GetPacker.unpack<dynamic>(badTypedPayloadShort),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerInvalidExtPayloadException>()),
       );
 
       final badTypedPayloadMismatch = Uint8List.fromList([
@@ -971,7 +973,7 @@ void main() {
       ]);
       expect(
         () => GetPacker.unpack<dynamic>(badTypedPayloadMismatch),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerInvalidExtPayloadException>()),
       );
     });
 
@@ -980,14 +982,14 @@ void main() {
         () => GetPacker.unpack<dynamic>(
           Uint8List.fromList([0x82, 0xA1, 0x61, 0x01]),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerTruncatedInputException>()),
       );
 
       expect(
         () => GetPacker.unpack<dynamic>(
           Uint8List.fromList([0xC7, 0x00, ExtType.bigInt]),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerInvalidExtPayloadException>()),
       );
 
       expect(
@@ -995,14 +997,14 @@ void main() {
           Uint8List.fromList([0xC7, 0x03, ExtType.bigInt, 0x00, 0x01, 0x00]),
           config: const GetPackerConfig(maxBigIntMagnitudeBytes: 1),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerInvalidExtPayloadException>()),
       );
 
       expect(
         () => GetPacker.unpack<dynamic>(
           Uint8List.fromList([0xC7, 0x00, ExtType.wideInt]),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerInvalidExtPayloadException>()),
       );
 
       expect(
@@ -1010,14 +1012,14 @@ void main() {
           Uint8List.fromList([0xC7, 0x03, ExtType.wideInt, 0x00, 0x01, 0x00]),
           config: const GetPackerConfig(maxBigIntMagnitudeBytes: 1),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerInvalidExtPayloadException>()),
       );
 
       expect(
         () => GetPacker.unpack<dynamic>(
           Uint8List.fromList([0xC7, 0x03, ExtType.boolList, 0x00, 0x00, 0x00]),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerInvalidExtPayloadException>()),
       );
 
       expect(
@@ -1033,7 +1035,7 @@ void main() {
             0xFF,
           ]),
         ),
-        throwsA(isA<UnexpectedError>()),
+        throwsA(isA<GetPackerInvalidExtPayloadException>()),
       );
     });
 
@@ -1168,7 +1170,7 @@ void main() {
       final strictCfg = const GetPackerConfig(maxBigIntMagnitudeBytes: 1);
       expect(
         () => GetPacker.pack(BigInt.from(65536), config: strictCfg),
-        throwsA(isA<BigDataException>()),
+        throwsA(isA<GetPackerLimitExceededException>()),
       );
     });
 

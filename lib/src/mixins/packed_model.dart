@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:get_packer/get_packer.dart';
+import '../get_packer.dart';
+import '../objects/get_packer_config.dart';
 
 mixin PackedModel {
   /// Packs the JSON form
