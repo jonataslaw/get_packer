@@ -36,8 +36,7 @@ class User with PackedModel {
   @override
   Map<String, dynamic> toJson() => {'name': name, 'age': age};
 
-  @override
-  static User fromJson<User extends PackedModel>(Map<String, dynamic> json) {
+  factory User.fromJson(Map<String, dynamic> json) {
     return User(json['name'], json['age']);
   }
 }
@@ -49,7 +48,10 @@ void main() {
   final packed = user.pack();
 
   // Unpacking
-  final unpackedUser = User.fromJson(unpack(packed));
+  final unpackedUser = GetPacker.unpack<User>(
+    packed,
+    fromJson: User.fromJson,
+  );
 
   print('${unpackedUser.name}, ${unpackedUser.age}'); // Output: Alice, 25
 }
