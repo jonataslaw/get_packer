@@ -3,7 +3,8 @@
 - Refactor encoder and decoder to be more efficient and maintainable.
 - Add all dart core types support.
 - Add benchmarks.
-- Revamp error model: structured `GetPackerException` hierarchy with typed decode/encode failures.
+- Add better error handling and reporting.
+- Add decoder `fromJson`that allows to decode directly to a model class.
 
 ## 1.0.1
 
