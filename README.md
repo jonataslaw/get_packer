@@ -49,7 +49,7 @@ final map = GetPacker.unpack<Map>(bytes);
 - Every Dart type you actually use — first-class, no conversion layer
 - Zero-copy typed arrays — the decoder hands you a view, not a copy
 - Smaller payloads — binary, with smart numeric promotion
-- Fast — 3–4× faster than MessagePack on plain collections, not even counting typed-data wins
+- Decode up 100× faster than Json/MessagePack on plain collections (and up to 5,000,000× faster on typed arrays)
 - Safe by default — size caps, depth limits, typed exceptions
 
 ---
@@ -134,7 +134,7 @@ When you encode a `Float32List`, get_packer writes the raw bytes exactly as they
 
 ```dart
 final encoded = GetPacker.pack({'readings': Float32List(1_000_000)});
-final result  = GetPacker.unpack<Map>(encoded);
+final result  = GetPacker.unpack(encoded);
 
 // result['readings'] is a Float32List view into `encoded`.
 // Zero allocation. Zero copy.
